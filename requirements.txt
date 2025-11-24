@@ -1,0 +1,11 @@
+核心依赖（已安装）
+Flask=3.1.0
+numpy=2.3.3
+pandas=2.3.3
+torch=2.8.0+cpu
+pydicom=3.0.1
+cryptography=42.0.5
+Pillow=11.1.0
+tqdm=4.66.4
+regex=2.5.162
+torchvision=0.23.0

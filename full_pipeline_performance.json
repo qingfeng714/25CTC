@@ -1,0 +1,30 @@
+{
+  "timestamp": "2025-10-23 16:23:05",
+  "test_type": "full_pipeline_performance",
+  "input": {
+    "csv_file": "data/train_with_sensitive_info.csv",
+    "dicom_dir": "data/output_dicom"
+  },
+  "data_stats": {
+    "dicom_files": 5000,
+    "csv_patients": 5000,
+    "matched": 5000,
+    "protected": 5000,
+    "ingested": 1222
+  },
+  "timing": {
+    "step1_csv_upload": 2.041,
+    "step2_dicom_upload": 120.73,
+    "step3_detection": 2.675,
+    "step4_protection": 161.067,
+    "step5_storage": 28.905,
+    "total_pipeline": 315.423,
+    "core_processing": 192.648
+  },
+  "performance": {
+    "avg_time_per_patient": 0.039,
+    "speed_requirement": 2.0,
+    "pass": true
+  },
+  "batch_id": "test_1761207595727"
+}

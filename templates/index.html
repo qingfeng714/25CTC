@@ -1,0 +1,2915 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>医疗隐私保护系统 - 跨模态检测</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20251022">
+    <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.3/dist/dicomParser.min.js"></script>
+    
+    <!-- Cornerstone 库 -->
+    <script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.1.2/dist/cornerstoneWADOImageLoader.min.js"></script>
+    
+    <!-- 你的自定义脚本 -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    
+    <style>
+        /* 强制基础布局使用 Flexbox，自适应屏幕宽度 */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            align-items: stretch; /* 使子元素宽度跟随容器 */
+            background: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        }
+        /* 主要容器自适应宽度并居中，内部也使用 flex 布局方便垂直伸展 */
+        .container {
+            display: flex;
+            flex-direction: column;
+            flex: 1 1 auto;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        /* 各主要区块默认占满可用宽度 */
+        .upload-section, .results-section, .protection-section, .progress-section, .results-tabs {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        /* 小屏时调整间距和方向 */
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .upload-mode { width: 100%; }
+            .action-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+        }
+        /* 大屏视觉上居中但不超过 max-width */
+        @media (min-width: 1200px) {
+            .container { max-width: 1200px; }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.3/dist/dicomParser.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>医疗隐私保护系统</h1>
+            <p>基于注意力机制的跨模态隐私关联检测</p>
+        </header>
+
+        <div class="upload-section">
+            <h2>数据上传</h2>
+            
+            <!-- 单文件上传模式 -->
+            <div class="upload-mode">
+                <h3>单文件处理</h3>
+                <p style="color: #666; margin-bottom: 15px;">
+                    单独上传CSV、TXT、DICOM三类文件进行检测
+                </p>
+                <form id="singleUploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="csvFile">CSV元数据文件:</label>
+                        <input type="file" id="csvFile" name="csv" accept=".csv" />
+                        <small>可选：上传包含元数据的CSV文件</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="txtFile">TXT文本文件:</label>
+                        <input type="file" id="txtFile" name="txt" accept=".txt" />
+                        <small>可选：上传包含诊断信息的TXT文件</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="dicomFile">DICOM影像文件:</label>
+                        <input type="file" id="dicomFile" name="dicom" accept=".dcm" />
+                        <small>可选：上传DICOM影像文件</small>
+                    </div>
+                    
+                    <div style="padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; margin-top: 15px;">
+                        <small style="color: #856404;">
+                            <strong>提示：</strong>至少需要上传一个文件（CSV、TXT或DICOM）。系统会从上传的文件中提取PHI信息并进行跨模态对齐。
+                        </small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">上传并检测</button>
+                </form>
+            </div>
+
+            <!-- 批量处理模式 -->
+            <div class="upload-mode">
+                <h3>批量处理</h3>
+                <p style="color: #666; margin-bottom: 15px;">
+                    上传多个 <code>cxr-record-list.csv</code> 文件和对应的 <code>files</code> 文件夹
+                </p>
+                <form id="batchUploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="batchCsvFiles">CSV元数据文件（可多选）:</label>
+                        <input type="file" id="batchCsvFiles" name="csv_files" accept=".csv" multiple required />
+                        <small>请选择一个或多个CSV元数据文件</small>
+        </div>
+        
+                    <div class="form-group">
+                        <label for="batchFilesFoldersZip">files文件夹ZIP压缩包（可多选）:</label>
+                        <input type="file" id="batchFilesFoldersZip" name="files_zips[]" accept=".zip" multiple />
+                        <small>上传对应的files文件夹ZIP压缩包（可选，每个ZIP对应一个CSV）</small>
+                    </div>
+        
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label>或直接上传多个files文件夹:</label>
+                        <input type="file" id="batchFilesFolders" name="files[]" webkitdirectory directory multiple />
+                        <small>选择多个files文件夹，系统会保持目录结构</small>
+        </div>
+        
+                    <button type="submit" class="btn btn-secondary">批量处理</button>
+    </form>
+            </div>
+        </div>
+
+        <!-- 处理进度 -->
+        <div id="progress" class="progress-section" style="display:none;">
+            <h3>处理进度</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p id="progressText">正在处理...</p>
+        </div>
+
+        <!-- 检测结果 -->
+        <div id="results" class="results-section" style="display:none;">
+        <h2>检测结果</h2>
+            
+            <div class="results-tabs">
+                <button class="tab-btn active" onclick="showTab('textResults')">文本实体</button>
+                <button class="tab-btn" onclick="showTab('imageResults')">影像区域</button>
+                <button class="tab-btn" onclick="showTab('crossModalResults')">跨模态关联</button>
+                <button class="tab-btn" onclick="showTab('riskAssessment')">风险评估</button>
+            </div>
+
+            <div id="textResults" class="tab-content active">
+                <h3>检测到的敏感实体</h3>
+                <div id="entitiesList"></div>
+            </div>
+
+            <div id="imageResults" class="tab-content">
+                <h3>影像ROI区域</h3>
+                <div id="roiDisplay"></div>
+            </div>
+
+            <div id="crossModalResults" class="tab-content">
+                <h3>跨模态关联检测</h3>
+                <div id="crossModalList"></div>
+            </div>
+
+            <div id="riskAssessment" class="tab-content">
+                <h3>风险评估</h3>
+                <div id="riskMetrics"></div>
+            </div>
+
+            <div class="action-buttons">
+                <button id="protectBtn" class="btn btn-success">执行保护</button>
+                <button id="downloadBtn" class="btn btn-info">下载结果</button>
+            </div>
+        </div>
+
+        <!-- 保护结果 -->
+        <div id="protectionResults" class="protection-section" style="display:none;">
+            <h2>🔒 保护结果</h2>
+            <div id="protectionStatus"></div>
+            <div id="protectedData"></div>
+            
+            <div class="action-buttons" style="margin-top: 20px;">
+                <button id="storageIngestBtn" class="btn btn-primary" style="display:none;">存储入库</button>
+                <button id="viewStorageBtn" class="btn btn-info" onclick="showStorageManagement()">查看存储</button>
+            </div>
+        </div>
+
+        <!-- 存储管理 -->
+        <div id="storageManagement" class="results-section" style="display:none;">
+            <h2>📦 存储管理</h2>
+            
+            <div class="results-tabs">
+                <button class="tab-btn active" onclick="showStorageTab('storageObjects')">存储对象</button>
+                <button class="tab-btn" onclick="showStorageTab('storageBatches')">批次列表</button>
+                <button class="tab-btn" onclick="showStorageTab('storageStats')">统计信息</button>
+                <button class="tab-btn" onclick="showStorageTab('verificationTab')">验证工具</button>
+            </div>
+
+            <div id="storageObjects" class="tab-content active">
+                <h3>存储对象列表</h3>
+                <button onclick="loadStorageObjects()" class="btn btn-secondary" style="margin-bottom:15px;">刷新列表</button>
+                <div id="storageObjectsList"></div>
+            </div>
+
+            <div id="storageBatches" class="tab-content">
+                <h3>批次列表</h3>
+                <button onclick="loadStorageBatches()" class="btn btn-secondary" style="margin-bottom:15px;">刷新列表</button>
+                <div id="storageBatchesList"></div>
+            </div>
+
+            <div id="storageStats" class="tab-content">
+                <h3>存储统计</h3>
+                <button onclick="loadStorageStats()" class="btn btn-secondary" style="margin-bottom:15px;">刷新统计</button>
+                <div id="storageStatsDisplay"></div>
+            </div>
+
+            <div id="verificationTab" class="tab-content">
+                <h3>验证工具</h3>
+                <div class="form-group">
+                    <label for="verifyPatientId">Patient ID:</label>
+                    <input type="text" id="verifyPatientId" placeholder="输入Patient ID (如: patient00826)" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px;">
+                </div>
+                <div class="action-buttons">
+                    <button onclick="verifyRepo()" class="btn btn-primary">从仓库验证</button>
+                    <button onclick="buildAndVerifyBundle()" class="btn btn-success">构建并验证Bundle</button>
+                </div>
+                <div id="verificationResults" style="margin-top:20px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 单文件上传处理
+        document.getElementById('singleUploadForm').onsubmit = async function(e) {
+            e.preventDefault();
+            await handleSingleUpload();
+        };
+
+        // 批量处理
+        document.getElementById('batchUploadForm').onsubmit = async function(e) {
+            e.preventDefault();
+            await handleBatchUpload();
+        };
+
+        // 新工作流处理
+
+        // 保护按钮
+        document.getElementById('protectBtn').onclick = async function() {
+            await executeProtection();
+        };
+
+        // 下载按钮
+        document.getElementById('downloadBtn').onclick = function() {
+            downloadResults();
+        };
+
+        // 处理单文件上传（CSV、TXT、DICOM三个独立文件）
+        async function handleSingleUpload() {
+            console.log('[DEBUG] 开始单文件上传处理');
+            
+            const csvFile = document.getElementById('csvFile').files[0];
+            const txtFile = document.getElementById('txtFile').files[0];
+            const dicomFile = document.getElementById('dicomFile').files[0];
+            
+            console.log('[DEBUG] 文件选择:', {
+                csv: csvFile ? csvFile.name : '未选择',
+                txt: txtFile ? txtFile.name : '未选择',
+                dicom: dicomFile ? dicomFile.name : '未选择'
+            });
+            
+            // 至少需要一个文件
+            if (!csvFile && !txtFile && !dicomFile) {
+                alert('请至少上传一个文件（CSV、TXT或DICOM）');
+                return;
+            }
+            
+            showProgress();
+            updateProgress(0, '开始处理...');
+            
+            try {
+                let csvPath = null;
+                let txtPath = null;
+                let dicomPath = null;
+                
+                // 步骤1: 上传CSV文件（如果提供）
+                if (csvFile) {
+                    console.log('[DEBUG] 开始上传CSV文件:', csvFile.name);
+                    updateProgress(10, '上传CSV文件...');
+                    const csvFormData = new FormData();
+                    csvFormData.append('csv', csvFile);
+                    
+                    try {
+                const csvResponse = await fetch('/api/upload_csv', {
+                method: 'POST',
+                            body: csvFormData
+                        });
+                        
+                        if (!csvResponse.ok) {
+                            const errorText = await csvResponse.text();
+                            console.error('[ERROR] CSV上传失败:', errorText);
+                            throw new Error('CSV上传失败: ' + errorText);
+                        }
+            
+                const csvResult = await csvResponse.json();
+                        csvPath = csvResult.csv_path;
+                        currentCsvPath = csvPath;  // 保存CSV路径供保护功能使用
+                        console.log('[SUCCESS] CSV上传成功:', csvResult);
+                    } catch (error) {
+                        console.error('[ERROR] CSV上传异常:', error);
+                        throw error;
+                    }
+                }
+                
+                // 步骤2: 上传TXT文件（如果提供）
+                if (txtFile) {
+                    console.log('[DEBUG] 开始上传TXT文件:', txtFile.name);
+                    updateProgress(30, '上传TXT文件...');
+                    const txtFormData = new FormData();
+                    txtFormData.append('txt', txtFile);
+                    
+                    try {
+                        const txtResponse = await fetch('/api/upload_txt', {
+                            method: 'POST',
+                            body: txtFormData
+                        });
+                        
+                        if (!txtResponse.ok) {
+                            const errorText = await txtResponse.text();
+                            console.error('[ERROR] TXT上传失败:', errorText);
+                            throw new Error('TXT上传失败: ' + errorText);
+                        }
+                        
+                        const txtResult = await txtResponse.json();
+                        txtPath = txtResult.txt_path;
+                        currentTxtPath = txtPath;  // 保存TXT路径供保护功能使用
+                        console.log('[SUCCESS] TXT上传成功:', txtResult);
+                    } catch (error) {
+                        console.error('[ERROR] TXT上传异常:', error);
+                        throw error;
+                    }
+                }
+                
+                // 步骤3: 上传DICOM文件（如果提供）
+                if (dicomFile) {
+                    console.log('[DEBUG] 开始上传DICOM文件:', dicomFile.name);
+                    updateProgress(50, '上传DICOM文件...');
+                    const dicomFormData = new FormData();
+                    dicomFormData.append('dicom', dicomFile);
+                    
+                    try {
+                    const dicomResponse = await fetch('/api/ingest', {
+                        method: 'POST',
+                        body: dicomFormData
+                    });
+                        
+                        if (!dicomResponse.ok) {
+                            const errorText = await dicomResponse.text();
+                            console.error('[ERROR] DICOM上传失败:', errorText);
+                            throw new Error('DICOM上传失败: ' + errorText);
+                        }
+                    
+                    const dicomResult = await dicomResponse.json();
+                        dicomPath = dicomResult.dicom_path;
+                        currentDicomPath = dicomPath;
+                        console.log('[SUCCESS] DICOM上传成功:', dicomResult);
+                    } catch (error) {
+                        console.error('[ERROR] DICOM上传异常:', error);
+                        throw error;
+                    }
+                }
+                
+                // 步骤4: 执行检测
+                console.log('[DEBUG] 开始执行检测，文件路径:', { csvPath, txtPath, dicomPath });
+                updateProgress(70, '执行跨模态检测...');
+                
+                try {
+                const detectionResponse = await fetch('/api/detect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                            csv_path: csvPath,
+                            txt_path: txtPath,
+                        dicom_path: dicomPath
+                    })
+                });
+                    
+                    if (!detectionResponse.ok) {
+                        const errorText = await detectionResponse.text();
+                        console.error('[ERROR] 检测失败，响应状态:', detectionResponse.status);
+                        console.error('[ERROR] 错误内容:', errorText);
+                        throw new Error('检测失败: ' + errorText);
+                    }
+                
+                const detectionResult = await detectionResponse.json();
+                    console.log('[SUCCESS] 检测结果:', detectionResult);
+                
+                updateProgress(100, '处理完成！');
+                
+                // 保存检测结果到全局变量
+                currentDetectionResult = detectionResult;
+                currentBatchId = detectionResult.ingest_id || `single_${Date.now()}`;
+                
+                    // 显示结果
+                displayResults(detectionResult);
+            } catch (error) {
+                    console.error('[ERROR] 检测异常:', error);
+                    throw error;
+                }
+                
+            } catch (error) {
+                console.error('[ERROR] 单文件处理失败:', error);
+                console.error('[ERROR] 错误堆栈:', error.stack);
+                showError('处理失败: ' + (error.message || String(error)));
+            } finally {
+                hideProgress();
+            }
+        }
+
+        // 处理批量上传（新工作流：多个CSV + 多个files文件夹）
+        async function handleBatchUpload() {
+            const csvFiles = document.getElementById('batchCsvFiles').files;
+            const zipFiles = document.getElementById('batchFilesFoldersZip').files;
+            const folderFiles = document.getElementById('batchFilesFolders').files;
+            
+            if (csvFiles.length === 0) {
+                alert('请至少选择一个CSV文件');
+                return;
+            }
+            
+            showProgress();
+            updateProgress(0, `准备处理 ${csvFiles.length} 个CSV文件...`);
+            
+            try {
+                const results = [];
+                
+                // 处理每个CSV文件
+                for (let i = 0; i < csvFiles.length; i++) {
+                    const csvFile = csvFiles[i];
+                    updateProgress((i / csvFiles.length) * 80, `处理第 ${i + 1}/${csvFiles.length} 个CSV文件...`);
+                    
+                    // 上传CSV
+                    const csvFormData = new FormData();
+                    csvFormData.append('csv', csvFile);
+                    
+                    const csvResponse = await fetch('/api/upload_csv', {
+                        method: 'POST',
+                        body: csvFormData
+                    });
+                    
+                    if (!csvResponse.ok) {
+                        console.error(`CSV ${i + 1} 上传失败`);
+                        continue;
+                    }
+                    
+                    const csvResult = await csvResponse.json();
+                    
+                    // 查找对应的files文件夹
+                    let filesRoot = null;
+                    
+                    // 优先使用ZIP文件（如果提供了）
+                    if (zipFiles && zipFiles.length > i) {
+                        const zipFormData = new FormData();
+                        zipFormData.append('files_zip', zipFiles[i]);
+                        
+                        const zipResponse = await fetch('/api/upload_files_folder', {
+                            method: 'POST',
+                            body: zipFormData
+                        });
+                        
+                        if (zipResponse.ok) {
+                            const zipResult = await zipResponse.json();
+                            filesRoot = zipResult.files_root;
+                        }
+                    }
+                    
+                    // 如果没有ZIP，尝试使用文件夹上传（需要根据文件名匹配）
+                    if (!filesRoot && folderFiles && folderFiles.length > 0) {
+                        // 简化处理：使用第一个文件夹（实际应用中应该根据文件名匹配）
+                        const filesFormData = new FormData();
+                        // 这里需要更智能的匹配逻辑，暂时使用所有文件
+                        for (let j = 0; j < Math.min(100, folderFiles.length); j++) {
+                            filesFormData.append('files[]', folderFiles[j], folderFiles[j].webkitRelativePath || folderFiles[j].name);
+                        }
+                        
+                        const filesResponse = await fetch('/api/upload_files_folder', {
+                            method: 'POST',
+                            body: filesFormData
+                        });
+                        
+                        if (filesResponse.ok) {
+                            const filesResult = await filesResponse.json();
+                            filesRoot = filesResult.files_root;
+                        }
+                    }
+                    
+                    if (!filesRoot) {
+                        console.warn(`CSV ${i + 1} 没有对应的files文件夹，跳过`);
+                        continue;
+                    }
+                    
+                    // 处理数据
+                    const processResponse = await fetch('/api/process_files', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            csv_path: csvResult.csv_path,
+                            files_root: filesRoot
+                        })
+                    });
+                    
+                    if (processResponse.ok) {
+                        const processResult = await processResponse.json();
+                        
+                        // 尝试加载详细结果（从输出JSON文件）
+                        let detailedResults = null;
+                        if (processResult.output) {
+                            try {
+                                // 从服务器读取JSON文件
+                                const jsonResponse = await fetch(`/api/get_result_file?path=${encodeURIComponent(processResult.output)}`);
+                                if (jsonResponse.ok) {
+                                    const jsonData = await jsonResponse.json();
+                                    detailedResults = jsonData.data;  // 提取data字段
+                                }
+                            } catch (e) {
+                                console.warn('无法加载详细结果文件:', e);
+                            }
+                        }
+                        
+                        results.push({
+                            csv_file: csvFile.name,
+                            result: processResult,
+                            detailed_results: detailedResults  // 包含每个series的详细检测结果
+                        });
+                    }
+                }
+                
+                updateProgress(100, '批量处理完成！');
+                
+                // 构造批量检测结果格式，供保护功能使用
+                const batchDetectionResult = {
+                    results: [],
+                    total_patients: 0,
+                    matched: 0
+                };
+                
+                // 从每个处理结果中提取数据
+                results.forEach(item => {
+                    if (item.detailed_results && Array.isArray(item.detailed_results)) {
+                        item.detailed_results.forEach(seriesResult => {
+                            if (seriesResult.matched) {
+                                // 构造保护功能需要的格式
+                                const protectionItem = {
+                                    matched: true,
+                                    patient_id: seriesResult.series_name || `patient_${Date.now()}`,
+                                    csv_data: {},  // 从detection结果中提取
+                                    dicom_metadata: {
+                                        filepath: seriesResult.dicom_files && seriesResult.dicom_files.length > 0 
+                                            ? seriesResult.dicom_files[0] 
+                                            : null,
+                                        patient_id: seriesResult.series_name || `patient_${Date.now()}`
+                                    },
+                                    confidence: 1.0,
+                                    risk_level: 'high'
+                                };
+                                
+                                // 从detection结果中提取CSV数据
+                                if (seriesResult.detection && seriesResult.detection.text_entities) {
+                                    const csvEntities = seriesResult.detection.text_entities.filter(
+                                        e => e.source === 'csv_metadata'
+                                    );
+                                    csvEntities.forEach(entity => {
+                                        if (entity.column && entity.text) {
+                                            protectionItem.csv_data[entity.column] = entity.text;
+                                        }
+                                    });
+                                }
+                                
+                                batchDetectionResult.results.push(protectionItem);
+                            }
+                        });
+                    }
+                });
+                
+                batchDetectionResult.total_patients = batchDetectionResult.results.length;
+                batchDetectionResult.matched = batchDetectionResult.results.length;
+                
+                // 保存到全局变量，供保护功能使用
+                currentDetectionResult = batchDetectionResult;
+                currentBatchId = `batch_${Date.now()}`;
+                
+                // 显示批量结果（包含TXT识别结果）
+                displayBatchNewWorkflowResults(results);
+                
+            } catch (error) {
+                alert('批量处理失败: ' + error.message);
+                console.error(error);
+            } finally {
+                hideProgress();
+            }
+        }
+        
+        // 显示批量新工作流结果
+        function displayBatchNewWorkflowResults(results) {
+            document.getElementById('results').style.display = 'block';
+            
+            const entitiesList = document.getElementById('entitiesList');
+            
+            // 汇总所有实体的统计
+            let totalCsvPhi = 0;
+            let totalTxtPhi = 0;
+            let totalDicomPhi = 0;
+            let totalSeries = 0;
+            let totalMatched = 0;
+            
+            results.forEach(item => {
+                const result = item.result;
+                totalCsvPhi += result.total_csv_phi || 0;
+                totalTxtPhi += result.total_txt_phi || 0;
+                totalDicomPhi += result.total_dicom_phi || 0;
+                totalSeries += result.total_series || 0;
+                totalMatched += result.matched || 0;
+            });
+            
+            let html = `
+                <div class="batch-summary" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h3 style="color: white; margin-bottom: 15px;">📊 批量处理完成</h3>
+                    <p><strong>处理的CSV文件数:</strong> ${results.length}</p>
+                    <p><strong>总Series数:</strong> ${totalSeries}</p>
+                    <p><strong>成功匹配:</strong> ${totalMatched}</p>
+                    <p><strong>CSV PHI实体总数:</strong> ${totalCsvPhi}</p>
+                    <p><strong>TXT PHI实体总数:</strong> ${totalTxtPhi}</p>
+                    <p><strong>DICOM PHI实体总数:</strong> ${totalDicomPhi}</p>
+                </div>
+            `;
+            
+            // 显示每个CSV文件的处理结果
+            results.forEach((item, index) => {
+                const result = item.result;
+                html += `
+                    <div class="entity-item" style="margin: 15px 0; padding: 15px; border-left: 4px solid #28a745; background: #f9f9f9;">
+                        <h4 style="color: #333; margin-bottom: 10px;">📄 ${item.csv_file}</h4>
+                        <p><strong>处理的Series:</strong> ${result.processed || 0}</p>
+                        <p><strong>成功匹配:</strong> ${result.matched || 0}</p>
+                        <p><strong>总Series数:</strong> ${result.total_series || 0}</p>
+                        <p><strong>CSV PHI实体:</strong> ${result.total_csv_phi || 0}</p>
+                        <p><strong>TXT PHI实体:</strong> ${result.total_txt_phi || 0}</p>
+                        <p><strong>DICOM PHI实体:</strong> ${result.total_dicom_phi || 0}</p>
+                        <p><strong>输出文件:</strong> <code>${result.output || 'N/A'}</code></p>
+                        ${result.output ? `<p style="margin-top: 10px;"><small style="color: #666;">详细结果（包括每个series的TXT识别结果）已保存到输出文件，请查看JSON文件获取完整信息。</small></p>` : ''}
+                    </div>
+                `;
+            });
+            
+            // 显示提示信息，说明详细结果已保存到JSON文件（不显示详细的实体列表）
+            html += `
+                <div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-left: 4px solid #2196F3; border-radius: 4px;">
+                    <h4 style="color: #1976D2; margin-bottom: 10px;">💡 详细结果说明</h4>
+                    <p style="color: #555; margin: 5px 0;">
+                        批量处理的详细结果（包括每个series的CSV、TXT、DICOM实体详情）已保存到输出JSON文件中。
+                    </p>
+                    <p style="color: #555; margin: 5px 0;">
+                        JSON文件包含完整的检测结果：
+                        <ul style="margin: 10px 0; padding-left: 20px; color: #555;">
+                            <li>每个series的CSV元数据实体详情</li>
+                            <li>每个series的TXT文件识别结果和PHI实体</li>
+                            <li>每个series的DICOM元数据和ROI信息</li>
+                            <li>跨模态对齐结果和风险评估</li>
+                        </ul>
+                    </p>
+                    <p style="color: #555; margin-top: 10px;">
+                        <strong>提示：</strong>如需查看具体的实体内容，请下载并查看输出JSON文件。
+                    </p>
+                </div>
+            `;
+            
+            entitiesList.innerHTML = html;
+            
+            // 显示ROI区域信息（在影像区域标签页）
+            const roiDisplay = document.getElementById('roiDisplay');
+            roiDisplay.innerHTML = '';
+            
+            // 从详细结果中提取ROI信息
+            let hasRoiInfo = false;
+            const allRoiInfo = [];
+            
+            console.log('[DEBUG] 开始提取ROI信息，results数量:', results.length);
+            
+            results.forEach((item, itemIndex) => {
+                console.log(`[DEBUG] 处理第${itemIndex + 1}个结果项，detailed_results:`, item.detailed_results ? '存在' : '不存在');
+                
+                if (item.detailed_results && Array.isArray(item.detailed_results)) {
+                    item.detailed_results.forEach((seriesResult, seriesIndex) => {
+                        console.log(`[DEBUG] 处理series ${seriesIndex + 1}: ${seriesResult.series_name}`);
+                        
+                        const detection = seriesResult.detection || {};
+                        const imageRegions = detection.image_regions || {};
+                        const roiMask = imageRegions.roi_mask;
+                        
+                        // 提取DICOM结果中的ROI信息
+                        if (seriesResult.dicom_results && Array.isArray(seriesResult.dicom_results)) {
+                            console.log(`[DEBUG] series ${seriesResult.series_name} 有 ${seriesResult.dicom_results.length} 个DICOM结果`);
+                            
+                            seriesResult.dicom_results.forEach((dicomResult, dicomIndex) => {
+                                console.log(`[DEBUG] DICOM ${dicomIndex + 1}: roi_mask =`, dicomResult.roi_mask ? '存在' : '不存在');
+                                
+                                // 检查是否有真正的ROI信息（has_roi为true，或者有实际的ROI内容）
+                                const roiMask = dicomResult.roi_mask || {};
+                                const hasRealRoiData = (roiMask.has_roi === true) ||
+                                                      (dicomResult.roi_texts && dicomResult.roi_texts.length > 0) ||
+                                                      (dicomResult.roi_names && dicomResult.roi_names.length > 0) ||
+                                                      (dicomResult.roi_descriptions && dicomResult.roi_descriptions.length > 0) ||
+                                                      (dicomResult.roi_phi_entities && dicomResult.roi_phi_entities.length > 0);
+                                
+                                // 只有当真正有ROI信息时才添加
+                                if (hasRealRoiData) {
+                                    hasRoiInfo = true;
+                                    allRoiInfo.push({
+                                        series_name: seriesResult.series_name,
+                                        dicom_path: dicomResult.dicom_path,
+                                        roi_mask: dicomResult.roi_mask || { has_roi: false, roi_type: 'header_only' },
+                                        roi_texts: dicomResult.roi_texts || [],
+                                        roi_names: dicomResult.roi_names || [],
+                                        roi_descriptions: dicomResult.roi_descriptions || [],
+                                        roi_phi_entities: dicomResult.roi_phi_entities || []
+                                    });
+                                    console.log(`[DEBUG] 添加ROI信息: ${seriesResult.series_name}, roi_texts: ${(dicomResult.roi_texts || []).length}, roi_phi: ${(dicomResult.roi_phi_entities || []).length}`);
+                                }
+                            });
+                        }
+                        
+                        // 如果没有dicom_results，尝试从image_regions中获取（只获取真正有ROI的）
+                        if (roiMask) {
+                            const hasRealRoiFromImageRegions = roiMask.has_roi === true ||
+                                                              (roiMask.roi_texts && roiMask.roi_texts.length > 0) ||
+                                                              (roiMask.roi_names && roiMask.roi_names.length > 0) ||
+                                                              (roiMask.roi_descriptions && roiMask.roi_descriptions.length > 0) ||
+                                                              (roiMask.roi_phi_entities && roiMask.roi_phi_entities.length > 0);
+                            
+                            if (hasRealRoiFromImageRegions && !hasRoiInfo) {
+                                console.log(`[DEBUG] 从image_regions获取ROI信息: ${seriesResult.series_name}`);
+                                hasRoiInfo = true;
+                                allRoiInfo.push({
+                                    series_name: seriesResult.series_name,
+                                    roi_mask: roiMask,
+                                    roi_texts: roiMask.roi_texts || [],
+                                    roi_names: roiMask.roi_names || [],
+                                    roi_descriptions: roiMask.roi_descriptions || [],
+                                    roi_phi_entities: roiMask.roi_phi_entities || []
+                                });
+                            }
+                        }
+                    });
+                } else {
+                    console.log(`[DEBUG] 第${itemIndex + 1}个结果项没有detailed_results`);
+                }
+            });
+            
+            console.log('[DEBUG] ROI信息提取完成，hasRoiInfo:', hasRoiInfo, 'allRoiInfo数量:', allRoiInfo.length);
+            
+            // 按DICOM文件分组，显示每个文件的敏感信息
+            const dicomFilesMap = new Map(); // key: dicom_path, value: { dicom_path, entities: [], roi_entities: [] }
+            
+            results.forEach(item => {
+                if (item.detailed_results && Array.isArray(item.detailed_results)) {
+                    item.detailed_results.forEach(seriesResult => {
+                        // 从dicom_results中提取每个DICOM文件的信息
+                        if (seriesResult.dicom_results && Array.isArray(seriesResult.dicom_results)) {
+                            seriesResult.dicom_results.forEach(dicomResult => {
+                                const dicomPath = dicomResult.dicom_path || 'unknown';
+                                const dicomFileName = dicomPath.split(/[/\\]/).pop() || dicomPath;
+                                
+                                if (!dicomFilesMap.has(dicomPath)) {
+                                    dicomFilesMap.set(dicomPath, {
+                                        dicom_path: dicomPath,
+                                        dicom_file_name: dicomFileName,
+                                        entities: [],
+                                        roi_entities: []
+                                    });
+                                }
+                                
+                                const dicomFileInfo = dicomFilesMap.get(dicomPath);
+                                
+                                // 提取DICOM元数据实体
+                                if (dicomResult.patient_id) {
+                                    dicomFileInfo.entities.push({
+                                        type: 'PATIENT_ID',
+                                        text: dicomResult.patient_id,
+                                        confidence: 0.99,
+                                        source: 'dicom_metadata'
+                                    });
+                                }
+                                if (dicomResult.patient_name) {
+                                    dicomFileInfo.entities.push({
+                                        type: 'NAME',
+                                        text: dicomResult.patient_name,
+                                        confidence: 0.95,
+                                        source: 'dicom_metadata'
+                                    });
+                                }
+                                if (dicomResult.patient_sex) {
+                                    dicomFileInfo.entities.push({
+                                        type: 'SEX',
+                                        text: dicomResult.patient_sex,
+                                        confidence: 0.90,
+                                        source: 'dicom_metadata'
+                                    });
+                                }
+                                if (dicomResult.patient_age) {
+                                    dicomFileInfo.entities.push({
+                                        type: 'AGE',
+                                        text: String(dicomResult.patient_age),
+                                        confidence: 0.90,
+                                        source: 'dicom_metadata'
+                                    });
+                                }
+                                if (dicomResult.accession) {
+                                    dicomFileInfo.entities.push({
+                                        type: 'ACCESSION',
+                                        text: dicomResult.accession,
+                                        confidence: 0.90,
+                                        source: 'dicom_metadata'
+                                    });
+                                }
+                                if (dicomResult.institution) {
+                                    dicomFileInfo.entities.push({
+                                        type: 'INSTITUTION',
+                                        text: dicomResult.institution,
+                                        confidence: 0.85,
+                                        source: 'dicom_metadata'
+                                    });
+                                }
+                                if (dicomResult.study_date) {
+                                    dicomFileInfo.entities.push({
+                                        type: 'STUDY_DATE',
+                                        text: dicomResult.study_date,
+                                        confidence: 0.90,
+                                        source: 'dicom_metadata'
+                                    });
+                                }
+                                
+                                // 提取ROI中的敏感信息
+                                if (dicomResult.roi_phi_entities && Array.isArray(dicomResult.roi_phi_entities)) {
+                                    dicomFileInfo.roi_entities.push(...dicomResult.roi_phi_entities);
+                                }
+                            });
+                        }
+                        
+                        // 也可以从detection.text_entities中提取（如果dicom_results中没有）
+                        const detection = seriesResult.detection || {};
+                        const textEntities = detection.text_entities || [];
+                        textEntities.forEach(entity => {
+                            if (entity.source === 'dicom_metadata' || entity.source === 'dicom_roi') {
+                                // 尝试找到对应的DICOM文件（通过series的dicom_results）
+                                if (seriesResult.dicom_results && seriesResult.dicom_results.length > 0) {
+                                    const firstDicom = seriesResult.dicom_results[0];
+                                    const dicomPath = firstDicom.dicom_path || 'unknown';
+                                    const dicomFileName = dicomPath.split(/[/\\]/).pop() || dicomPath;
+                                    
+                                    if (!dicomFilesMap.has(dicomPath)) {
+                                        dicomFilesMap.set(dicomPath, {
+                                            dicom_path: dicomPath,
+                                            dicom_file_name: dicomFileName,
+                                            entities: [],
+                                            roi_entities: []
+                                        });
+                                    }
+                                    
+                                    const dicomFileInfo = dicomFilesMap.get(dicomPath);
+                                    if (entity.source === 'dicom_metadata') {
+                                        // 去重：检查是否已存在相同的(type, text)
+                                        const exists = dicomFileInfo.entities.some(e => 
+                                            e.type === entity.type && e.text === entity.text
+                                        );
+                                        if (!exists) {
+                                            dicomFileInfo.entities.push(entity);
+                                        }
+                                    } else if (entity.source === 'dicom_roi') {
+                                        dicomFileInfo.roi_entities.push(entity);
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+            
+            console.log('[DEBUG] 提取到的DICOM文件数量:', dicomFilesMap.size);
+            
+            // 为每个DICOM文件显示敏感信息
+            if (dicomFilesMap.size > 0) {
+                dicomFilesMap.forEach((dicomFileInfo, dicomPath) => {
+                    const allEntities = [...dicomFileInfo.entities, ...dicomFileInfo.roi_entities];
+                    
+                    if (allEntities.length === 0) {
+                        return; // 跳过没有敏感信息的文件
+                    }
+                    
+                    const dicomFileDiv = document.createElement('div');
+                    dicomFileDiv.style.marginBottom = '30px';
+                    dicomFileDiv.style.border = '2px solid #FF9800';
+                    dicomFileDiv.style.borderRadius = '8px';
+                    dicomFileDiv.style.padding = '15px';
+                    dicomFileDiv.style.background = '#FFF3E0';
+                    
+                    // 显示DICOM文件名
+                    const fileNameHeader = document.createElement('h4');
+                    fileNameHeader.style.color = '#FF9800';
+                    fileNameHeader.style.marginBottom = '10px';
+                    fileNameHeader.style.fontSize = '16px';
+                    fileNameHeader.style.fontWeight = '600';
+                    fileNameHeader.innerHTML = `📄 ${escapeHtml(dicomFileInfo.dicom_file_name)}`;
+                    dicomFileDiv.appendChild(fileNameHeader);
+                    
+                    // 显示DICOM元数据敏感信息标题
+                    const dicomHeader = document.createElement('h4');
+                    dicomHeader.style.color = '#FF9800';
+                    dicomHeader.style.marginBottom = '15px';
+                    dicomHeader.style.fontSize = '18px';
+                    dicomHeader.style.fontWeight = '600';
+                    dicomHeader.innerHTML = `🏥 DICOM元数据敏感信息 <span style="color: #6c757d; font-weight: 400;">(${allEntities.length} 个实体)</span>`;
+                    dicomFileDiv.appendChild(dicomHeader);
+                    
+                    // 按类型分组显示
+                    const typeGroups = {};
+                    allEntities.forEach(entity => {
+                        const type = entity.type || 'UNKNOWN';
+                        if (!typeGroups[type]) {
+                            typeGroups[type] = [];
+                        }
+                        typeGroups[type].push(entity);
+                    });
+                    
+                    Object.keys(typeGroups).sort().forEach(type => {
+                        const typeHeader = document.createElement('h5');
+                        typeHeader.style.color = '#495057';
+                        typeHeader.style.marginTop = '15px';
+                        typeHeader.style.marginBottom = '8px';
+                        typeHeader.style.fontSize = '14px';
+                        typeHeader.style.fontWeight = '600';
+                        
+                        let icon = '📋';
+                        if (type === 'NAME' || type === 'PATIENT_NAME') icon = '👤';
+                        else if (type === 'AGE' || type === 'PATIENT_AGE') icon = '📅';
+                        else if (type === 'SEX' || type === 'PATIENT_SEX') icon = '⚧';
+                        else if (type === 'PATIENT_ID') icon = '🆔';
+                        else if (type === 'ACCESSION' || type === 'ACCESSION_NUMBER') icon = '📄';
+                        else if (type === 'INSTITUTION' || type === 'INSTITUTION_NAME') icon = '🏥';
+                        else if (type === 'STUDY_DATE') icon = '📅';
+                        
+                        typeHeader.innerHTML = `${icon} ${type} <span style="color: #6c757d; font-weight: 400;">(${typeGroups[type].length})</span>`;
+                        dicomFileDiv.appendChild(typeHeader);
+                        
+                        // 去重显示
+                        const uniqueEntities = [];
+                        const seenTexts = new Set();
+                        typeGroups[type].forEach(entity => {
+                            const entityText = String(entity.text || '').trim();
+                            if (entityText && !seenTexts.has(entityText)) {
+                                seenTexts.add(entityText);
+                                uniqueEntities.push(entity);
+                            }
+                        });
+                        
+                        uniqueEntities.forEach(entity => {
+                            const entityDiv = document.createElement('div');
+                            entityDiv.className = 'entity-item';
+                            entityDiv.style.marginLeft = '20px';
+                            entityDiv.style.marginBottom = '8px';
+                            entityDiv.style.display = 'flex';
+                            entityDiv.style.alignItems = 'center';
+                            entityDiv.style.gap = '10px';
+                            entityDiv.style.padding = '8px 0';
+                            entityDiv.innerHTML = `
+                                <span class="entity-type" style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap;">${entity.type}</span>
+                                <span class="entity-text" style="flex: 1; color: #333; font-weight: 500; word-break: break-word;">${escapeHtml(String(entity.text || ''))}</span>
+                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px; white-space: nowrap;">置信度: ${((entity.confidence || 0.9) * 100).toFixed(1)}%</span>
+                                ${entity.source === 'dicom_roi' ? '<span style="color: #FF5722; font-size: 12px;">[ROI]</span>' : ''}
+                            `;
+                            dicomFileDiv.appendChild(entityDiv);
+                        });
+                    });
+                    
+                    roiDisplay.appendChild(dicomFileDiv);
+                });
+            }
+            
+            if (hasRoiInfo) {
+                // 显示DICOM敏感信息（从ROI中提取的）
+                const dicomRoiEntities = [];
+                allRoiInfo.forEach(roiInfo => {
+                    if (roiInfo.roi_phi_entities && roiInfo.roi_phi_entities.length > 0) {
+                        dicomRoiEntities.push(...roiInfo.roi_phi_entities);
+                    }
+                });
+                
+                if (dicomRoiEntities.length > 0) {
+                    const dicomMetadataDiv = document.createElement('div');
+                    dicomMetadataDiv.style.marginBottom = '30px';
+                    dicomMetadataDiv.style.border = '2px solid #FF5722';
+                    dicomMetadataDiv.style.borderRadius = '8px';
+                    dicomMetadataDiv.style.padding = '15px';
+                    dicomMetadataDiv.style.background = '#FFEBEE';
+                    
+                    const dicomHeader = document.createElement('h4');
+                    dicomHeader.style.color = '#FF5722';
+                    dicomHeader.style.marginBottom = '15px';
+                    dicomHeader.style.fontSize = '18px';
+                    dicomHeader.style.fontWeight = '600';
+                    dicomHeader.innerHTML = `🏥 DICOM ROI敏感信息 <span style="color: #6c757d; font-weight: 400;">(${dicomRoiEntities.length} 个实体)</span>`;
+                    dicomMetadataDiv.appendChild(dicomHeader);
+                    
+                    // 按类型分组
+                    const typeGroups = {};
+                    dicomRoiEntities.forEach(entity => {
+                        const type = entity.type || 'UNKNOWN';
+                        if (!typeGroups[type]) {
+                            typeGroups[type] = [];
+                        }
+                        typeGroups[type].push(entity);
+                    });
+                    
+                    // 显示每个类型的实体
+                    Object.keys(typeGroups).sort().forEach(type => {
+                        const typeHeader = document.createElement('h5');
+                        typeHeader.style.color = '#495057';
+                        typeHeader.style.marginTop = '15px';
+                        typeHeader.style.marginBottom = '8px';
+                        typeHeader.style.fontSize = '14px';
+                        typeHeader.style.fontWeight = '600';
+                        
+                        let icon = '📋';
+                        if (type === 'NAME' || type === 'PATIENT_NAME') icon = '👤';
+                        else if (type === 'AGE' || type === 'PATIENT_AGE') icon = '📅';
+                        else if (type === 'SEX' || type === 'PATIENT_SEX') icon = '⚧';
+                        else if (type === 'PATIENT_ID') icon = '🆔';
+                        else if (type === 'ACCESSION' || type === 'ACCESSION_NUMBER') icon = '📄';
+                        else if (type === 'INSTITUTION' || type === 'INSTITUTION_NAME') icon = '🏥';
+                        else if (type === 'STUDY_DATE') icon = '📅';
+                        
+                        typeHeader.innerHTML = `${icon} ${type} <span style="color: #6c757d; font-weight: 400;">(${typeGroups[type].length})</span>`;
+                        dicomMetadataDiv.appendChild(typeHeader);
+                        
+                        // 去重显示
+                        const uniqueEntities = [];
+                        const seenTexts = new Set();
+                        typeGroups[type].forEach(entity => {
+                            const entityText = String(entity.text || '').trim();
+                            if (entityText && !seenTexts.has(entityText)) {
+                                seenTexts.add(entityText);
+                                uniqueEntities.push(entity);
+                            }
+                        });
+                        
+                        uniqueEntities.forEach(entity => {
+                            const entityDiv = document.createElement('div');
+                            entityDiv.className = 'entity-item';
+                            entityDiv.style.marginLeft = '20px';
+                            entityDiv.style.marginBottom = '8px';
+                            entityDiv.style.display = 'flex';
+                            entityDiv.style.alignItems = 'center';
+                            entityDiv.style.gap = '10px';
+                            entityDiv.style.padding = '8px 0';
+                            entityDiv.innerHTML = `
+                                <span class="entity-type" style="background: linear-gradient(135deg, #FF5722 0%, #E91E63 100%); color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap;">${entity.type}</span>
+                                <span class="entity-text" style="flex: 1; color: #333; font-weight: 500; word-break: break-word;">${escapeHtml(String(entity.text || ''))}</span>
+                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px; white-space: nowrap;">置信度: ${((entity.confidence || 0.9) * 100).toFixed(1)}%</span>
+                                <span style="color: #FF5722; font-size: 12px;">[ROI]</span>
+                            `;
+                            dicomMetadataDiv.appendChild(entityDiv);
+                        });
+                    });
+                    
+                    roiDisplay.appendChild(dicomMetadataDiv);
+                }
+            }
+            
+            // 如果既没有DICOM文件也没有ROI信息，显示提示
+            if (dicomFilesMap.size === 0 && !hasRoiInfo) {
+                roiDisplay.innerHTML = '<p style="text-align: center; color: #6c757d; padding: 30px;">未检测到DICOM敏感信息。可能原因：1) DICOM文件header信息为空；2) JSON解析失败导致数据未加载。请检查浏览器控制台的调试信息。</p>';
+            }
+            
+            // 如果有ROI信息，显示ROI区域详细信息（只显示真正检测到ROI的）
+            if (hasRoiInfo) {
+                // 显示ROI区域信息（只显示真正有ROI内容的）
+                allRoiInfo.forEach(roiInfo => {
+                    const roiMask = roiInfo.roi_mask || {};
+                    
+                    // 检查是否真正有ROI信息：has_roi为true，或者有roi_texts、roi_names、roi_descriptions、roi_phi_entities
+                    const hasRealRoi = roiMask.has_roi === true || 
+                                      (roiInfo.roi_texts && roiInfo.roi_texts.length > 0) ||
+                                      (roiInfo.roi_names && roiInfo.roi_names.length > 0) ||
+                                      (roiInfo.roi_descriptions && roiInfo.roi_descriptions.length > 0) ||
+                                      (roiInfo.roi_phi_entities && roiInfo.roi_phi_entities.length > 0);
+                    
+                    // 如果没有真正的ROI信息，跳过显示
+                    if (!hasRealRoi) {
+                        return;
+                    }
+                    
+                    const roiInfoDiv = document.createElement('div');
+                    roiInfoDiv.style.marginBottom = '20px';
+                    roiInfoDiv.style.border = '2px solid #2196F3';
+                    roiInfoDiv.style.borderRadius = '8px';
+                    roiInfoDiv.style.padding = '15px';
+                    roiInfoDiv.style.background = '#E3F2FD';
+                    
+                    const roiHeader = document.createElement('h4');
+                    roiHeader.style.color = '#2196F3';
+                    roiHeader.style.marginBottom = '15px';
+                    roiHeader.style.fontSize = '18px';
+                    roiHeader.style.fontWeight = '600';
+                    roiHeader.innerHTML = `🖼️ ROI区域信息 - ${roiInfo.series_name || '未知Series'}`;
+                    roiInfoDiv.appendChild(roiHeader);
+                    
+                    let roiHtml = `
+                        <div style="margin-bottom: 10px;">
+                            <strong>ROI类型:</strong> ${roiMask.roi_type || 'unknown'}
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <strong>是否包含ROI:</strong> ${roiMask.has_roi ? '是' : '否'}
+                        </div>
+                    `;
+                    
+                    if (roiMask.roi_boxes_count !== undefined && roiMask.roi_boxes_count > 0) {
+                        roiHtml += `<div style="margin-bottom: 10px;"><strong>ROI区域数量:</strong> ${roiMask.roi_boxes_count}</div>`;
+                    }
+                    
+                    if (roiInfo.roi_names && roiInfo.roi_names.length > 0) {
+                        roiHtml += `<div style="margin-bottom: 10px;"><strong>ROI名称:</strong> ${roiInfo.roi_names.join(', ')}</div>`;
+                    }
+                    
+                    if (roiInfo.roi_descriptions && roiInfo.roi_descriptions.length > 0) {
+                        roiHtml += `<div style="margin-bottom: 10px;"><strong>ROI描述:</strong> ${roiInfo.roi_descriptions.join('; ')}</div>`;
+                    }
+                    
+                    if (roiInfo.roi_texts && roiInfo.roi_texts.length > 0) {
+                        roiHtml += `<div style="margin-top: 15px;"><strong>OCR提取的ROI文本:</strong></div><ul style="margin-top: 8px; padding-left: 20px;">`;
+                        roiInfo.roi_texts.forEach(item => {
+                            roiHtml += `<li style="margin-bottom: 5px;">[${item.source || 'unknown'}] Box: (${item.box[0]},${item.box[1]},${item.box[2]},${item.box[3]}) Text: "${escapeHtml(item.text || '')}"</li>`;
+                        });
+                        roiHtml += `</ul>`;
+                    }
+                    
+                    if (roiMask.message) {
+                        roiHtml += `<div style="margin-top: 10px; color: #666; font-style: italic;">${roiMask.message}</div>`;
+                    }
+                    
+                    roiInfoDiv.innerHTML += roiHtml;
+                    roiDisplay.appendChild(roiInfoDiv);
+                });
+            }
+            
+            // 显示跨模态关联（显示更详细的信息）
+            const crossModalList = document.getElementById('crossModalList');
+            let crossModalHtml = `
+                <h4>批量跨模态对齐结果</h4>
+                <div class="batch-summary" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h4 style="color: white; margin-bottom: 15px;">🏥 批量处理完成</h4>
+                    <p><strong>处理的CSV文件数:</strong> ${results.length}</p>
+                    <p><strong>总Series数:</strong> ${totalSeries}</p>
+                    <p><strong>成功匹配:</strong> ${totalMatched}</p>
+                    <p><strong>CSV PHI实体:</strong> ${totalCsvPhi}</p>
+                    <p><strong>TXT PHI实体:</strong> ${totalTxtPhi}</p>
+                    <p><strong>DICOM PHI实体:</strong> ${totalDicomPhi}</p>
+                </div>
+            `;
+            
+            // 解释"匹配"的含义
+            crossModalHtml += `
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+                    <h5 style="color: #856404; margin-bottom: 10px;">📝 关于"匹配"的说明</h5>
+                    <p style="color: #856404; margin: 5px 0;">
+                        <strong>"匹配"</strong>指的是：一个series同时包含TXT文件和DICOM文件，且成功进行了跨模态对齐。
+                    </p>
+                    <p style="color: #856404; margin: 5px 0;">
+                        <strong>重要：</strong>即使"匹配数"为0，TXT文件的识别结果仍然存在！
+                    </p>
+                    <ul style="margin: 10px 0; padding-left: 20px; color: #856404;">
+                        <li>如果TXT PHI实体总数 > 0，说明TXT文件已被成功处理</li>
+                        <li>TXT文件的识别结果保存在输出JSON文件中</li>
+                        <li>请查看"文本实体"标签页或输出JSON文件查看TXT识别详情</li>
+                    </ul>
+                </div>
+            `;
+            
+            // 显示每个文件的处理详情
+            results.forEach((item, index) => {
+                const result = item.result;
+                crossModalHtml += `
+                    <div style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #f9f9f9;">
+                        <h5 style="color: #333; margin-bottom: 10px;">📄 ${item.csv_file}</h5>
+                        <p><strong>处理的Series:</strong> ${result.processed || 0}</p>
+                        <p><strong>匹配的Series:</strong> ${result.matched || 0}</p>
+                        <p><strong>CSV实体:</strong> ${result.total_csv_phi || 0}</p>
+                        <p><strong>TXT实体:</strong> ${result.total_txt_phi || 0} ${result.total_txt_phi > 0 ? '✅' : '❌'}</p>
+                        <p><strong>DICOM实体:</strong> ${result.total_dicom_phi || 0}</p>
+                        ${result.output ? `<p style="margin-top: 10px;"><small>详细结果: <code>${result.output}</code></small></p>` : ''}
+                    </div>
+                `;
+            });
+            
+            crossModalList.innerHTML = crossModalHtml;
+            
+            // 显示风险评估（按照图2的样式）
+            const riskMetrics = document.getElementById('riskMetrics');
+            if (riskMetrics) {
+                // 计算汇总指标：从detailed_results中提取所有series的metrics
+                let totalF1Score = 0;
+                let totalProcessingTime = 0;
+                let totalHighRisk = 0;
+                let validResults = 0;
+                
+                results.forEach(item => {
+                    // 首先尝试从result.metrics中读取（如果存在）
+                    if (item.result && item.result.metrics) {
+                        const metrics = item.result.metrics;
+                        totalF1Score += (metrics.f1_score || 0) * 100;
+                        totalProcessingTime += metrics.processing_time || 0;
+                        totalHighRisk += metrics.high_risk_entities_count || 0;
+                        validResults++;
+                    }
+                    // 然后从detailed_results中提取每个series的metrics
+                    if (item.detailed_results && Array.isArray(item.detailed_results)) {
+                        item.detailed_results.forEach(seriesResult => {
+                            if (seriesResult.detection && seriesResult.detection.metrics) {
+                                const metrics = seriesResult.detection.metrics;
+                                totalF1Score += (metrics.f1_score || 0) * 100;
+                                totalProcessingTime += metrics.processing_time || 0;
+                                totalHighRisk += metrics.high_risk_entities_count || 0;
+                                validResults++;
+                            }
+                        });
+                    }
+                });
+                
+                const avgF1Score = validResults > 0 ? totalF1Score / validResults : 0;
+                const avgProcessingTime = validResults > 0 ? totalProcessingTime / validResults : 0;
+                
+                riskMetrics.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #2196F3;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">F1分数</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #2196F3;">${avgF1Score.toFixed(1)}%</div>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">处理时间</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #4CAF50;">${avgProcessingTime.toFixed(2)}秒</div>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">高风险实体</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #dc3545;">${totalHighRisk}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 默认切换到文本实体标签页
+            showTab('textResults');
+        }
+
+        // 旧批量模式（保留用于兼容，但不再使用）
+        async function handleBatchMode_OLD(csvFile, dicomFiles) {
+            updateProgress(5, `读取CSV文件 ${csvFile.name}...`);
+            
+            // 1. 读取CSV文件，提取所有patient_id
+            const csvText = await csvFile.text();
+            const lines = csvText.split('\n');
+            const headers = lines[0].split(',');
+            
+            console.log(`CSV包含 ${lines.length - 1} 行数据`);
+            console.log(`DICOM文件数: ${dicomFiles.length}`);
+            
+            // 提取所有patient信息
+            const csvPatients = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const pathMatch = line.match(/patient(\d+)/i);
+                if (pathMatch) {
+                    csvPatients.push({
+                        rowIndex: i - 1,
+                        patientId: 'patient' + pathMatch[1],
+                        patientNumber: pathMatch[1],
+                        csvLine: line
+                    });
+                }
+            }
+            
+            console.log(`从CSV提取到 ${csvPatients.length} 个patient_id`);
+            
+            // 2. 分批上传DICOM文件（每批100个）
+            const BATCH_SIZE = 100;
+            const allMetadata = [];
+            const totalBatches = Math.ceil(dicomFiles.length / BATCH_SIZE);
+            
+            for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+                const start = batchIndex * BATCH_SIZE;
+                const end = Math.min(start + BATCH_SIZE, dicomFiles.length);
+                const batchFiles = Array.from(dicomFiles).slice(start, end);
+                
+                const progressPercent = 10 + (batchIndex / totalBatches) * 60;
+                updateProgress(progressPercent, `上传DICOM文件 ${start + 1}-${end}/${dicomFiles.length}...`);
+                
+                // 创建FormData
+                const dicomFormData = new FormData();
+                for (let dicomFile of batchFiles) {
+                    dicomFormData.append('dicom_files', dicomFile);
+                }
+                
+                // 上传这一批
+                try {
+                    const dicomUploadResponse = await fetch('/api/batch_upload_dicom', {
+                        method: 'POST',
+                        body: dicomFormData
+                    });
+                    
+                    if (!dicomUploadResponse.ok) {
+                        const errorText = await dicomUploadResponse.text();
+                        console.error(`批次 ${batchIndex + 1} 上传失败:`, errorText);
+                        throw new Error(`DICOM批次 ${batchIndex + 1} 上传失败: ${errorText}`);
+                    }
+                    
+                    const dicomData = await dicomUploadResponse.json();
+                    console.log(`批次 ${batchIndex + 1}/${totalBatches} 上传完成: ${dicomData.processed} 个文件`);
+                    
+                    // 合并元数据
+                    if (dicomData.metadata_list) {
+                        allMetadata.push(...dicomData.metadata_list);
+                    }
+                } catch (error) {
+                    console.error(`批次 ${batchIndex + 1} 处理失败:`, error);
+                    alert(`警告: 批次 ${batchIndex + 1} 处理失败，继续处理其他批次...`);
+                }
+            }
+            
+            console.log(`所有DICOM上传完成，共提取 ${allMetadata.length} 个元数据`);
+            updateProgress(75, `上传CSV并开始跨模态匹配...`);
+            
+            // 3. 上传CSV
+            const csvFormData = new FormData();
+            csvFormData.append('csv_file', csvFile);
+            const csvResponse = await fetch('/api/upload_csv', {method: 'POST', body: csvFormData});
+            
+            if (!csvResponse.ok) {
+                throw new Error('CSV上传失败');
+            }
+            
+            const csvUploadData = await csvResponse.json();
+            
+            // 4. 调用批量检测API
+            updateProgress(80, `执行跨模态匹配...`);
+            const batchDetectResponse = await fetch('/api/batch_detect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    csv_path: csvUploadData.csv_path,
+                    dicom_metadata_list: allMetadata
+                })
+            });
+            
+            if (!batchDetectResponse.ok) {
+                const errorText = await batchDetectResponse.text();
+                throw new Error(`批量检测失败: ${errorText}`);
+            }
+            
+            const batchResult = await batchDetectResponse.json();
+            
+            updateProgress(100, '批量处理完成！');
+            console.log('批量检测结果:', batchResult);
+            console.log('Results数组长度:', batchResult.results ? batchResult.results.length : 'undefined');
+            console.log('前5个结果:', batchResult.results ? batchResult.results.slice(0, 5) : 'undefined');
+            
+            // 显示结果
+            displayBatchModeResults(batchResult);
+        }
+        
+        // 配对模式：多个CSV对多个DICOM（原逻辑保留）
+        async function handlePairMode(csvFiles, dicomFiles) {
+            const results = [];
+            for (let i = 0; i < csvFiles.length; i++) {
+                const csvFile = csvFiles[i];
+                updateProgress((i / csvFiles.length) * 100, `处理 ${csvFile.name}...`);
+                
+                // 简单的文件名匹配
+                let matchedDicom = null;
+                const csvBaseName = csvFile.name.replace(/\.csv$/i, '').toLowerCase();
+                for (let dicomFile of dicomFiles) {
+                    const dicomBaseName = dicomFile.name.replace(/\.dcm$/i, '').toLowerCase();
+                    if (csvBaseName === dicomBaseName) {
+                        matchedDicom = dicomFile;
+                        break;
+                    }
+                }
+                
+                results.push({
+                    csv_file: csvFile.name,
+                    dicom_file: matchedDicom ? matchedDicom.name : 'None',
+                    result: {text_entities: [], mappings: []}
+                });
+            }
+            
+            updateProgress(100, '完成！');
+            displayBatchResults(results);
+        }
+
+                // HTML转义函数
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+                // 显示检测结果
+        function displayResults(result) {
+            console.log('检测结果:', result); // 添加调试信息
+            document.getElementById('results').style.display = 'block';
+            
+                // 显示文本实体（只显示CSV和TXT文件中的敏感信息）
+            const entitiesList = document.getElementById('entitiesList');
+            entitiesList.innerHTML = '';
+            
+            // 获取所有实体（在函数开始处声明一次，后续复用）
+            const allEntities = result.entities || result.text_entities || [];
+            // 过滤：只保留CSV和TXT来源的实体
+            const textEntities = allEntities.filter(entity => {
+                const source = entity.source || 'unknown';
+                return source === 'csv_metadata' || source === 'txt_file';
+            });
+            
+            if (textEntities.length > 0) {
+                console.log('检测到文本实体数量:', textEntities.length);
+                
+                // 按source分组（只包含csv_metadata和txt_file）
+                const sourceGroups = {
+                    'csv_metadata': { name: 'CSV元数据', icon: '📊', color: '#2196F3', entities: [] },
+                    'txt_file': { name: 'TXT文件', icon: '📄', color: '#4CAF50', entities: [] }
+                };
+                
+                textEntities.forEach(entity => {
+                    const source = entity.source || 'unknown';
+                    const group = sourceGroups[source];
+                    if (group) {
+                        group.entities.push(entity);
+                    }
+                });
+                
+                // 为每个source创建分组显示
+                Object.keys(sourceGroups).forEach(sourceKey => {
+                    const group = sourceGroups[sourceKey];
+                    if (group.entities.length === 0) return;
+                    
+                    const sourceDiv = document.createElement('div');
+                    sourceDiv.style.marginBottom = '30px';
+                    sourceDiv.style.border = `2px solid ${group.color}`;
+                    sourceDiv.style.borderRadius = '8px';
+                    sourceDiv.style.padding = '15px';
+                    sourceDiv.style.background = `${group.color}10`;
+                    
+                    const sourceHeader = document.createElement('h4');
+                    sourceHeader.style.color = group.color;
+                    sourceHeader.style.marginBottom = '15px';
+                    sourceHeader.style.fontSize = '18px';
+                    sourceHeader.style.fontWeight = '600';
+                    sourceHeader.innerHTML = `${group.icon} ${group.name} <span style="color: #6c757d; font-weight: 400;">(${group.entities.length} 个实体)</span>`;
+                    sourceDiv.appendChild(sourceHeader);
+                    
+                    // 按实体类型进一步分组
+                    const typeGroups = {};
+                    group.entities.forEach(entity => {
+                        const type = entity.type || 'UNKNOWN';
+                        if (!typeGroups[type]) {
+                            typeGroups[type] = [];
+                        }
+                        typeGroups[type].push(entity);
+                    });
+                    
+                    // 显示每个类型的实体
+                    Object.keys(typeGroups).sort().forEach(type => {
+                        const typeHeader = document.createElement('h5');
+                        typeHeader.style.color = '#495057';
+                        typeHeader.style.marginTop = '15px';
+                        typeHeader.style.marginBottom = '8px';
+                        typeHeader.style.fontSize = '14px';
+                        typeHeader.style.fontWeight = '600';
+                    
+                    // 根据类型设置图标
+                    let icon = '📋';
+                    if (type === 'NAME') icon = '👤';
+                    else if (type === 'AGE') icon = '📅';
+                    else if (type === 'SEX') icon = '⚧';
+                    else if (type === 'PHONE') icon = '📱';
+                        else if (type === 'ID' || type === 'PATIENT_ID' || type === 'SUBJECT_ID' || type === 'STUDY_ID' || type === 'DICOM_ID') icon = '🆔';
+                    else if (type === 'ADDRESS') icon = '📍';
+                        else if (type === 'PATH' || type.includes('PATH') || type.includes('FILE')) icon = '📁';
+                        else if (type.includes('DATE') || type === 'STUDYDATE' || type === 'STUDYTIME') icon = '📅';
+                        else if (type.includes('PROVIDER') || type.includes('PROVIDER')) icon = '👨‍⚕️';
+                        else if (type.includes('DESCRIPTION') || type.includes('MEANING')) icon = '📝';
+                        
+                        typeHeader.innerHTML = `${icon} ${type} <span style="color: #6c757d; font-weight: 400;">(${typeGroups[type].length})</span>`;
+                        sourceDiv.appendChild(typeHeader);
+                        
+                        // 去重显示：每个类型只显示唯一的实体值
+                        const uniqueEntities = [];
+                        const seenTexts = new Set();
+                        
+                        typeGroups[type].forEach(entity => {
+                            const entityText = String(entity.text || '').trim();
+                            if (entityText && !seenTexts.has(entityText)) {
+                                seenTexts.add(entityText);
+                                uniqueEntities.push(entity);
+                            }
+                        });
+                        
+                        uniqueEntities.forEach(entity => {
+                        const entityDiv = document.createElement('div');
+                        entityDiv.className = 'entity-item';
+                            entityDiv.style.marginLeft = '20px';
+                            entityDiv.style.marginBottom = '8px';
+                            entityDiv.style.display = 'flex';
+                            entityDiv.style.alignItems = 'center';
+                            entityDiv.style.gap = '10px';
+                        entityDiv.innerHTML = `
+                                <span class="entity-type" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">${entity.type}</span>
+                                <span class="entity-text" style="flex: 1; color: #333; font-weight: 500;">${escapeHtml(String(entity.text || ''))}</span>
+                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px;">置信度: ${((entity.confidence || 0.9) * 100).toFixed(1)}%</span>
+                            `;
+                            sourceDiv.appendChild(entityDiv);
+                        });
+                    });
+                    
+                    entitiesList.appendChild(sourceDiv);
+                });
+                
+                // 显示统计信息
+                const statsDiv = document.createElement('div');
+                statsDiv.style.marginTop = '20px';
+                statsDiv.style.padding = '15px';
+                statsDiv.style.background = '#f8f9fa';
+                statsDiv.style.borderRadius = '8px';
+                statsDiv.innerHTML = `
+                    <h5 style="margin-bottom: 10px;">📊 统计信息</h5>
+                    <p><strong>CSV实体:</strong> ${sourceGroups['csv_metadata'].entities.length} 个</p>
+                    <p><strong>TXT实体:</strong> ${sourceGroups['txt_file'].entities.length} 个</p>
+                    <p><strong>总计:</strong> ${textEntities.length} 个实体</p>
+                `;
+                entitiesList.appendChild(statsDiv);
+            } else {
+                console.log('未检测到文本实体，结果:', result);
+                entitiesList.innerHTML = '<p style="text-align: center; color: #6c757d; padding: 30px;">未检测到敏感实体（CSV和TXT文件中）</p>';
+            }
+            
+            // 显示影像ROI区域和DICOM敏感信息
+            const roiDisplay = document.getElementById('roiDisplay');
+            roiDisplay.innerHTML = '';
+            
+            // 提取DICOM相关的敏感实体（元数据和ROI）
+            // 使用之前已经声明的allEntities变量，避免重复声明
+            const dicomEntities = allEntities.filter(entity => {
+                const source = entity.source || 'unknown';
+                return source === 'dicom_metadata' || source === 'dicom_roi';
+            });
+            
+            const imageRegions = result.image_regions || result.roi_regions || {};
+            
+            // 1. 显示DICOM敏感信息（元数据和ROI）
+            if (dicomEntities.length > 0) {
+                // 分离元数据和ROI实体
+                const metadataEntities = dicomEntities.filter(e => e.source === 'dicom_metadata');
+                const roiEntities = dicomEntities.filter(e => e.source === 'dicom_roi');
+                
+                // 显示DICOM元数据敏感信息
+                if (metadataEntities.length > 0) {
+                    const dicomMetadataDiv = document.createElement('div');
+                    dicomMetadataDiv.style.marginBottom = '30px';
+                    dicomMetadataDiv.style.border = '2px solid #FF9800';
+                    dicomMetadataDiv.style.borderRadius = '8px';
+                    dicomMetadataDiv.style.padding = '15px';
+                    dicomMetadataDiv.style.background = '#FFF3E0';
+                    
+                    const dicomHeader = document.createElement('h4');
+                    dicomHeader.style.color = '#FF9800';
+                    dicomHeader.style.marginBottom = '15px';
+                    dicomHeader.style.fontSize = '18px';
+                    dicomHeader.style.fontWeight = '600';
+                    dicomHeader.innerHTML = `🏥 DICOM元数据敏感信息 <span style="color: #6c757d; font-weight: 400;">(${metadataEntities.length} 个实体)</span>`;
+                    dicomMetadataDiv.appendChild(dicomHeader);
+                
+                // 按类型分组
+                const dicomTypeGroups = {};
+                dicomEntities.forEach(entity => {
+                    const type = entity.type || 'UNKNOWN';
+                    if (!dicomTypeGroups[type]) {
+                        dicomTypeGroups[type] = [];
+                    }
+                    dicomTypeGroups[type].push(entity);
+                });
+                
+                // 显示每个类型的实体
+                Object.keys(dicomTypeGroups).sort().forEach(type => {
+                    const typeHeader = document.createElement('h5');
+                    typeHeader.style.color = '#495057';
+                    typeHeader.style.marginTop = '15px';
+                    typeHeader.style.marginBottom = '8px';
+                    typeHeader.style.fontSize = '14px';
+                    typeHeader.style.fontWeight = '600';
+                    
+                    // 根据类型设置图标
+                    let icon = '📋';
+                    if (type === 'NAME' || type === 'PATIENT_NAME') icon = '👤';
+                    else if (type === 'AGE' || type === 'PATIENT_AGE') icon = '📅';
+                    else if (type === 'SEX' || type === 'PATIENT_SEX') icon = '⚧';
+                    else if (type === 'PATIENT_ID') icon = '🆔';
+                    else if (type === 'ACCESSION' || type === 'ACCESSION_NUMBER') icon = '📄';
+                    else if (type === 'INSTITUTION' || type === 'INSTITUTION_NAME') icon = '🏥';
+                    else if (type === 'STUDY_DATE') icon = '📅';
+                    
+                    typeHeader.innerHTML = `${icon} ${type} <span style="color: #6c757d; font-weight: 400;">(${dicomTypeGroups[type].length})</span>`;
+                    dicomMetadataDiv.appendChild(typeHeader);
+                    
+                    // 去重显示
+                    const uniqueEntities = [];
+                    const seenTexts = new Set();
+                    dicomTypeGroups[type].forEach(entity => {
+                        const entityText = String(entity.text || '').trim();
+                        if (entityText && !seenTexts.has(entityText)) {
+                            seenTexts.add(entityText);
+                            uniqueEntities.push(entity);
+                        }
+                    });
+                    
+                    uniqueEntities.forEach(entity => {
+                        const entityDiv = document.createElement('div');
+                        entityDiv.className = 'entity-item';
+                        entityDiv.style.marginLeft = '20px';
+                        entityDiv.style.marginBottom = '8px';
+                        entityDiv.style.display = 'flex';
+                        entityDiv.style.alignItems = 'center';
+                        entityDiv.style.gap = '10px';
+                        entityDiv.style.padding = '8px 0';
+                        entityDiv.innerHTML = `
+                            <span class="entity-type" style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap;">${entity.type}</span>
+                            <span class="entity-text" style="flex: 1; color: #333; font-weight: 500; word-break: break-word;">${escapeHtml(String(entity.text || ''))}</span>
+                            <span class="entity-confidence" style="color: #6c757d; font-size: 13px; white-space: nowrap;">置信度: ${((entity.confidence || 0.9) * 100).toFixed(1)}%</span>
+                            ${entity.source === 'dicom_roi' ? '<span style="color: #FF5722; font-size: 12px;">[ROI]</span>' : ''}
+                        `;
+                        dicomMetadataDiv.appendChild(entityDiv);
+                    });
+                });
+                
+                roiDisplay.appendChild(dicomMetadataDiv);
+                }
+            }
+            
+            // 2. 显示ROI区域信息
+            if (imageRegions.roi_mask) {
+                const roiInfoDiv = document.createElement('div');
+                roiInfoDiv.style.marginBottom = '20px';
+                roiInfoDiv.style.border = '2px solid #2196F3';
+                roiInfoDiv.style.borderRadius = '8px';
+                roiInfoDiv.style.padding = '15px';
+                roiInfoDiv.style.background = '#E3F2FD';
+                
+                const roiHeader = document.createElement('h4');
+                roiHeader.style.color = '#2196F3';
+                roiHeader.style.marginBottom = '15px';
+                roiHeader.style.fontSize = '18px';
+                roiHeader.style.fontWeight = '600';
+                roiHeader.innerHTML = '🖼️ ROI区域信息';
+                roiInfoDiv.appendChild(roiHeader);
+                
+                const roiInfo = imageRegions.roi_mask;
+                let roiHtml = `
+                    <div style="margin-bottom: 10px;">
+                        <strong>ROI类型:</strong> ${roiInfo.roi_type || imageRegions.roi_type || 'unknown'}
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong>是否包含ROI:</strong> ${roiInfo.has_roi ? '是' : '否'}
+                    </div>
+                `;
+                
+                if (roiInfo.roi_boxes_count !== undefined) {
+                    roiHtml += `<div style="margin-bottom: 10px;"><strong>ROI区域数量:</strong> ${roiInfo.roi_boxes_count}</div>`;
+                }
+                
+                if (roiInfo.roi_names && roiInfo.roi_names.length > 0) {
+                    roiHtml += `<div style="margin-bottom: 10px;"><strong>ROI名称:</strong> ${roiInfo.roi_names.join(', ')}</div>`;
+                }
+                
+                if (roiInfo.roi_descriptions && roiInfo.roi_descriptions.length > 0) {
+                    roiHtml += `<div style="margin-bottom: 10px;"><strong>ROI描述:</strong> ${roiInfo.roi_descriptions.join('; ')}</div>`;
+                }
+                
+                if (roiInfo.roi_texts && roiInfo.roi_texts.length > 0) {
+                    roiHtml += `<div style="margin-top: 15px;"><strong>OCR提取的ROI文本:</strong></div><ul style="margin-top: 8px; padding-left: 20px;">`;
+                    roiInfo.roi_texts.forEach(item => {
+                        roiHtml += `<li style="margin-bottom: 5px;">[${item.source}] Box: (${item.box[0]},${item.box[1]},${item.box[2]},${item.box[3]}) Text: "${escapeHtml(item.text)}"</li>`;
+                    });
+                    roiHtml += `</ul>`;
+                }
+                
+                if (roiInfo.message) {
+                    roiHtml += `<div style="margin-top: 10px; color: #666; font-style: italic;">${roiInfo.message}</div>`;
+                }
+                
+                roiInfoDiv.innerHTML += roiHtml;
+                roiDisplay.appendChild(roiInfoDiv);
+            } else if (dicomEntities.length === 0) {
+                // 如果没有DICOM实体和ROI信息，显示提示
+                if (!imageRegions.roi_mask && dicomEntities.length === 0) {
+                    roiDisplay.innerHTML = '<p style="text-align: center; color: #6c757d; padding: 30px;">未检测到DICOM敏感信息和ROI区域</p>';
+                }
+            }
+            
+            // 显示跨模态关联
+            const crossModalList = document.getElementById('crossModalList');
+            crossModalList.innerHTML = '';
+            
+            if (result.mappings && result.mappings.length > 0) {
+                result.mappings.forEach((mapping, index) => {
+                    const mappingDiv = document.createElement('div');
+                    mappingDiv.className = `risk-item ${mapping.risk_level}`;
+                    
+                    // 根据匹配类型设置图标和标题
+                    let icon = '🔗';
+                    let title = '跨模态关联';
+                    if (mapping.match_type === 'patient_id_exact_match') {
+                        icon = '✅';
+                        title = 'Patient ID 完全匹配';
+                    } else if (mapping.match_type === 'patient_id_mismatch') {
+                        icon = '❌';
+                        title = 'Patient ID 不匹配';
+                    } else if (mapping.match_type === 'name_match') {
+                        icon = '👤';
+                        title = '姓名匹配';
+                    } else if (mapping.match_type === 'age_match') {
+                        icon = '📅';
+                        title = '年龄匹配';
+                    } else if (mapping.match_type === 'sex_match') {
+                        icon = '⚧';
+                        title = '性别匹配';
+                    }
+                    
+                    mappingDiv.innerHTML = `
+                        <div>${icon} ${title}</div>
+                        <div><strong>CSV位置:</strong> 第 <code>${mapping.csv_row}</code> 行，<code>${mapping.csv_column}</code> 列</div>
+                        <div><strong>CSV值:</strong> <code>${mapping.csv_value}</code></div>
+                        ${mapping.extracted_patient_id ? `<div><strong>提取的Patient ID:</strong> <code>${mapping.extracted_patient_id}</code></div>` : ''}
+                        <div><strong>DICOM字段:</strong> <code>${mapping.dicom_field}</code> = <code>${mapping.dicom_value}</code></div>
+                        <div>
+                            <strong>置信度:</strong> <span style="color: ${mapping.confidence >= 0.9 ? '#28a745' : mapping.confidence >= 0.7 ? '#ffc107' : '#dc3545'}; font-weight: 700;">${(mapping.confidence * 100).toFixed(1)}%</span>
+                            <span style="margin: 0 10px;">|</span>
+                            <strong>风险级别:</strong> <span class="risk-level ${mapping.risk_level}">${mapping.risk_level}</span>
+                        </div>
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e9ecef;">
+                            <strong>说明:</strong> ${mapping.description}
+                        </div>
+                    `;
+                    crossModalList.appendChild(mappingDiv);
+                });
+            } else {
+                crossModalList.innerHTML = '<p style="text-align: center; color: #6c757d; padding: 30px;">未发现跨模态关联</p>';
+            }
+            
+            // 显示跨模态风险
+            if (result.cross_modal_risks && result.cross_modal_risks.length > 0) {
+                result.cross_modal_risks.forEach(risk => {
+                    const riskDiv = document.createElement('div');
+                    riskDiv.className = 'risk-item';
+                    riskDiv.innerHTML = `
+                        <span class="risk-level ${risk.risk_level}">${risk.risk_level}</span>
+                        <span class="risk-description">${risk.description}</span>
+                    `;
+                    crossModalList.appendChild(riskDiv);
+                });
+            }
+            
+            // 显示风险评估（按照图2的样式）
+                const riskMetrics = document.getElementById('riskMetrics');
+            if (riskMetrics) {
+                const metrics = result.metrics || {};
+                const f1Score = (metrics.f1_score || 0) * 100;
+                const processingTime = metrics.processing_time || 0;
+                const highRiskCount = metrics.high_risk_entities_count || 0;
+                
+                riskMetrics.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #2196F3;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">F1分数</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #2196F3;">${f1Score.toFixed(1)}%</div>
+                    </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">处理时间</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #4CAF50;">${processingTime.toFixed(2)}秒</div>
+                    </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">高风险实体</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #dc3545;">${highRiskCount}</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // 显示批量模式结果（1个CSV对多个DICOM）
+        function displayBatchModeResults(data) {
+            console.log('displayBatchModeResults called with:', data);
+            document.getElementById('results').style.display = 'block';
+            
+            // 保存检测结果到全局变量，供保护功能使用
+            currentDetectionResult = data;
+            currentBatchId = `batch_${Date.now()}`;
+            
+            // 1. 处理文本实体 - 汇总所有CSV数据中的敏感信息
+            displayBatchTextEntities(data);
+            
+            // 2. 处理跨模态关联 - 显示匹配详情
+            displayBatchCrossmodalMatches(data);
+            
+            // 3. 影像区域提示
+            const roiDisplay = document.getElementById('roiDisplay');
+            if (roiDisplay) {
+                roiDisplay.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: #666;">
+                        <p>批量处理模式下，DICOM影像ROI信息已包含在元数据中。</p>
+                        <p>共处理 ${data.matched} 个DICOM文件的元数据。</p>
+                    </div>
+                `;
+            }
+            
+            // 4. 显示风险评估（按照图2的样式）
+            const riskMetrics = document.getElementById('riskMetrics');
+            if (riskMetrics) {
+                const metrics = data.metrics || {};
+                const f1Score = (metrics.f1_score || 0) * 100;
+                const processingTime = metrics.processing_time || 0;
+                const highRiskCount = metrics.high_risk_entities_count || 0;
+                
+                riskMetrics.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #2196F3;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">F1分数</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #2196F3;">${f1Score.toFixed(1)}%</div>
+                    </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">处理时间</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #4CAF50;">${processingTime.toFixed(2)}秒</div>
+                    </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">高风险实体</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #dc3545;">${highRiskCount}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 默认切换到文本实体标签页
+            showTab('textResults');
+        }
+        
+        // 显示批量文本实体（汇总）
+        function displayBatchTextEntities(data) {
+            const entitiesList = document.getElementById('entitiesList');
+            
+            if (!entitiesList) {
+                console.error('[ERROR] entitiesList元素未找到');
+                return;
+            }
+            
+            if (!data || !data.results || data.results.length === 0) {
+                entitiesList.innerHTML = '<p style="color: red;">错误：未收到有效数据</p>';
+                return;
+            }
+            
+            // 汇总所有敏感实体
+            const entityGroups = {
+                'NAME': { icon: '👤', entities: [] },
+                'SEX': { icon: '⚧', entities: [] },
+                'AGE': { icon: '📅', entities: [] },
+                'PHONE': { icon: '📱', entities: [] },
+                'ID_NUMBER': { icon: '🆔', entities: [] },
+                'ADDRESS': { icon: '📍', entities: [] },
+                'PATH': { icon: '📁', entities: [] }
+            };
+            
+            // 从所有匹配结果中提取实体（性能优化：最多处理前1000条）
+            const processingLimit = Math.min(1000, data.results.length);
+            for (let i = 0; i < processingLimit; i++) {
+                const match = data.results[i];
+                if (match.csv_data) {
+                    const csvData = match.csv_data;
+                    
+                    // 提取各类实体
+                    if (csvData.Name) entityGroups['NAME'].entities.push({ value: csvData.Name, row: match.row_index });
+                    if (csvData.Sex) entityGroups['SEX'].entities.push({ value: csvData.Sex, row: match.row_index });
+                    if (csvData.Age) entityGroups['AGE'].entities.push({ value: csvData.Age, row: match.row_index });
+                    if (csvData.Phone) entityGroups['PHONE'].entities.push({ value: csvData.Phone, row: match.row_index });
+                    if (csvData.ID_Number) entityGroups['ID_NUMBER'].entities.push({ value: csvData.ID_Number, row: match.row_index });
+                    if (csvData.Address) entityGroups['ADDRESS'].entities.push({ value: csvData.Address, row: match.row_index });
+                    if (csvData.Path) entityGroups['PATH'].entities.push({ value: csvData.Path, row: match.row_index });
+                }
+            }
+            
+            if (data.results.length > 1000) {
+                console.log(`[PERF] 仅处理前1000条数据用于显示，总共${data.results.length}条`);
+            }
+            
+            let html = '<h4>检测到的敏感实体（批量汇总）</h4>';
+            html += `<p style="color: #666; margin-bottom: 20px;">共处理 ${data.total_patients} 条记录，匹配 ${data.matched} 个DICOM文件</p>`;
+            
+            // 显示每类实体（仅显示前20条）
+            for (const [entityType, group] of Object.entries(entityGroups)) {
+                if (group.entities.length > 0) {
+                    // 去重
+                    const uniqueEntities = [...new Set(group.entities.map(e => String(e.value)))];
+                    const displayCount = Math.min(20, group.entities.length);
+                    
+                    html += `
+                        <div class="entity-group" style="margin-bottom: 20px;">
+                            <h5 style="color: #333; margin-bottom: 10px;">
+                                ${group.icon} ${entityType} (${group.entities.length} 条，去重后 ${uniqueEntities.length} 个唯一值)
+                            </h5>
+                    `;
+                    
+                    // 显示前20条
+                    for (let i = 0; i < displayCount; i++) {
+                        const entity = group.entities[i];
+                        html += `
+                            <div class="entity-item" style="margin: 8px 0;">
+                                <span class="entity-type">${entityType}</span>
+                                <span class="entity-text">${entity.value}</span>
+                                <span class="entity-confidence">行${entity.row + 1} | 98.0%</span>
+                            </div>
+                        `;
+                    }
+                    
+                    if (group.entities.length > 20) {
+                        html += `<p style="color: #999; text-align: center; margin: 10px 0;">... 还有 ${group.entities.length - 20} 条未显示 ...</p>`;
+                    }
+                    
+                    html += '</div>';
+                }
+            }
+            
+            entitiesList.innerHTML = html;
+        }
+        
+        // 显示批量跨模态匹配
+        function displayBatchCrossmodalMatches(data) {
+            const crossmodalList = document.getElementById('crossModalList');  // 注意大小写
+            
+            if (!crossmodalList) {
+                console.error('[ERROR] crossModalList元素未找到');
+                return;
+            }
+            
+            if (!data || !data.total_patients) {
+                crossmodalList.innerHTML = '<p style="color: red;">错误：未收到有效数据</p>';
+                return;
+            }
+            
+            const matchRate = data.total_patients > 0 ? (data.matched / data.total_patients * 100).toFixed(1) : 0;
+            const hasResults = data.results && data.results.length > 0;
+            
+            let html = `
+                <h4>跨模态关联检测（批量）</h4>
+                <div class="batch-summary" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                    <h4 style="color: white;">🏥 批量跨模态检测完成</h4>
+                    <p><strong>CSV文件:</strong> ${data.csv_file || 'unknown'}</p>
+                    <p><strong>总病人数:</strong> ${data.total_patients} 人</p>
+                    <p><strong>已处理:</strong> ${data.processed} 人</p>
+                    <p><strong>成功匹配DICOM:</strong> ${data.matched} / ${data.total_patients} (${matchRate}%)</p>
+                    <p><strong>未匹配:</strong> ${data.unmatched} 人</p>
+                </div>
+            `;
+            
+            if (hasResults) {
+                html += `<div style="margin: 20px 0;"><h4>匹配详情（前20条）:</h4></div>`;
+                
+                // 显示前20条匹配结果，像单文件一样详细
+                const displayCount = Math.min(20, data.results.length);
+                for (let i = 0; i < displayCount; i++) {
+                    const item = data.results[i];
+                    if (!item.matched) continue; // 只显示成功匹配的
+                    
+                    const csvData = item.csv_data || {};
+                    const dicomMeta = item.dicom_metadata || {};
+                    
+                    html += `
+                        <div class="crossmodal-card" style="margin: 15px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #f9f9f9;">
+                            <h5 style="color: #333; margin-bottom: 10px;">📋 Patient ${item.patient_id} (CSV第${item.row_index + 1}行)</h5>
+                            
+                            <div class="mapping-item" style="margin: 10px 0; padding: 10px; background: white; border-radius: 4px;">
+                                <strong style="color: #28a745;">✅ Patient ID 完全匹配</strong>
+                                <p style="margin: 5px 0; color: #666;">
+                                    <strong>CSV位置:</strong> 第 ${item.row_index} 行，Path 列<br>
+                                    <strong>CSV值:</strong> ${csvData.Path || 'N/A'}<br>
+                                    <strong>提取的Patient ID:</strong> ${item.patient_id}<br>
+                                    <strong>DICOM字段:</strong> patient_id = ${dicomMeta.patient_id || 'N/A'}<br>
+                                    <strong>置信度:</strong> ${(item.confidence * 100).toFixed(1)}% | 
+                                    <strong>风险级别:</strong> <span style="color: #dc3545;">${item.risk_level || 'critical'}</span>
+                                </p>
+                                <p style="color: #999; font-size: 0.9em; margin: 5px 0;">
+                                    说明: CSV Path中的patient_id (${item.patient_id}) 与 DICOM patient_id 完全匹配
+                                </p>
+                            </div>
+                            
+                            ${csvData.Sex && dicomMeta.patient_sex ? `
+                            <div class="mapping-item" style="margin: 10px 0; padding: 10px; background: white; border-radius: 4px;">
+                                <strong style="color: #ffc107;">⚧ 性别匹配</strong>
+                                <p style="margin: 5px 0; color: #666;">
+                                    <strong>CSV位置:</strong> 第 ${item.row_index} 行，Sex 列<br>
+                                    <strong>CSV值:</strong> ${csvData.Sex}<br>
+                                    <strong>DICOM字段:</strong> patient_sex = ${dicomMeta.patient_sex}<br>
+                                    <strong>置信度:</strong> 90.0% | <strong>风险级别:</strong> medium
+                                </p>
+                                <p style="color: #999; font-size: 0.9em; margin: 5px 0;">
+                                    说明: 性别匹配: ${csvData.Sex}
+                                </p>
+                            </div>
+                            ` : ''}
+                            
+                            ${csvData.Age && dicomMeta.patient_age ? `
+                            <div class="mapping-item" style="margin: 10px 0; padding: 10px; background: white; border-radius: 4px;">
+                                <strong style="color: #17a2b8;">📅 年龄匹配</strong>
+                                <p style="margin: 5px 0; color: #666;">
+                                    <strong>CSV值:</strong> ${csvData.Age} 岁<br>
+                                    <strong>DICOM值:</strong> ${dicomMeta.patient_age}<br>
+                                    <strong>置信度:</strong> 85.0% | <strong>风险级别:</strong> medium
+                                </p>
+                            </div>
+                            ` : ''}
+                            
+                            <div style="margin-top: 10px; padding: 8px; background: #fff3cd; border-radius: 4px;">
+                                <strong style="color: #856404;">⚠️ 检测到高风险实体:</strong>
+                                ${csvData.Name ? `<span style="margin: 0 5px; color: #dc3545;">NAME</span>` : ''}
+                                ${csvData.Phone ? `<span style="margin: 0 5px; color: #dc3545;">PHONE</span>` : ''}
+                                ${csvData.ID_Number ? `<span style="margin: 0 5px; color: #dc3545;">ID_NUMBER</span>` : ''}
+                                ${csvData.Address ? `<span style="margin: 0 5px; color: #dc3545;">ADDRESS</span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                if (data.results.length > 20) {
+                    html += `<p style="text-align: center; color: #666; margin: 20px 0;">... 还有 ${data.results.length - 20} 条结果未显示 ...</p>`;
+                }
+            } else {
+                html += '<p style="color: #dc3545;">警告：未找到匹配结果数据</p>';
+            }
+            
+            // 添加说明
+            html += `
+                <div style="margin-top: 20px; padding: 15px; background: ${data.matched > 0 ? '#d4edda' : '#f8d7da'}; border-left: 4px solid ${data.matched > 0 ? '#28a745' : '#dc3545'}; border-radius: 4px;">
+                    <h4 style="color: ${data.matched > 0 ? '#155724' : '#721c24'}; margin-bottom: 10px;">
+                        ${data.matched > 0 ? '✅ 匹配成功' : '⚠️ 匹配失败'}
+                    </h4>
+                    ${data.matched > 0 ? `
+                        <p style="color: #155724;">
+                            系统从CSV的Path列中提取了 ${data.total_patients} 个patient_id<br>
+                            从DICOM文件中提取了 ${data.matched > 0 ? '有效的' : ''} patient_id<br>
+                            成功匹配了 ${data.matched} 个跨模态关联！<br>
+                            跨模态关联检测已完成。
+                        </p>
+                    ` : `
+                        <p style="color: #721c24;">
+                            <strong>可能原因：</strong><br>
+                            1. DICOM元数据中的patient_id与CSV中的patient_id不匹配<br>
+                            2. DICOM文件可能缺少patient_id字段<br>
+                        </p>
+                    `}
+                </div>
+            `;
+            
+            crossmodalList.innerHTML = html;
+            console.log('Results displayed successfully in crossmodal tab');
+        }
+        
+        // 显示批量处理结果（配对模式）
+        function displayBatchResults(results) {
+                document.getElementById('results').style.display = 'block';
+            
+            const entitiesList = document.getElementById('entitiesList');
+            
+            // 统计信息
+            let totalEntities = 0;
+            let totalMappings = 0;
+            let filesWithDicom = 0;
+            
+            results.forEach(item => {
+                totalEntities += (item.result.text_entities || []).length;
+                totalMappings += (item.result.mappings || []).length;
+                if (item.dicom_file !== 'None') filesWithDicom++;
+            });
+            
+            let summaryHTML = `
+                <div class="batch-summary">
+                    <h4>📊 批量处理完成</h4>
+                    <p><strong>文件总数:</strong> ${results.length} 对</p>
+                    <p><strong>匹配DICOM:</strong> ${filesWithDicom} / ${results.length}</p>
+                    <p><strong>检测实体:</strong> ${totalEntities} 个</p>
+                    <p><strong>跨模态关联:</strong> ${totalMappings} 个</p>
+                    ${filesWithDicom === 0 ? '<p style="color: #dc3545;">⚠️ 未找到匹配的DICOM文件，无法进行跨模态检测</p>' : ''}
+                </div>
+            `;
+            
+            // 显示每个文件的结果摘要
+            results.forEach((item, index) => {
+                const entityCount = (item.result.text_entities || []).length;
+                const mappingCount = (item.result.mappings || []).length;
+                const hasDicom = item.dicom_file !== 'None';
+                
+                // 根据是否有DICOM设置边框颜色
+                const borderColor = hasDicom ? (mappingCount > 0 ? '#28a745' : '#ffc107') : '#dc3545';
+                
+                summaryHTML += `
+                    <div class="entity-item" style="margin: 10px 0; border-left-color: ${borderColor};">
+                        <span class="entity-type" style="background: ${borderColor};">#${index + 1}</span>
+                        <span class="entity-text">
+                            📄 <strong>CSV:</strong> ${item.csv_file}<br>
+                            🏥 <strong>DICOM:</strong> ${item.dicom_file} ${!hasDicom ? '❌' : '✅'}<br>
+                            📝 <strong>检测实体:</strong> ${entityCount} 个<br>
+                            🔗 <strong>跨模态关联:</strong> ${mappingCount} 个 ${!hasDicom ? '(需要DICOM文件)' : ''}
+                        </span>
+                        <span class="entity-confidence">
+                            ${item.result.metrics && item.result.metrics.f1_score 
+                                ? 'F1: ' + (item.result.metrics.f1_score * 100).toFixed(1) + '%' 
+                                : (hasDicom ? 'N/A' : '无DICOM')}
+                        </span>
+                    </div>
+                `;
+            });
+            
+            // 添加说明
+            summaryHTML += `
+                <div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-left: 4px solid #2196F3; border-radius: 4px;">
+                    <h4 style="color: #1976D2; margin-bottom: 10px;">💡 文件匹配说明</h4>
+                    <p style="margin: 5px 0; color: #555;">系统会自动根据文件名匹配CSV和DICOM：</p>
+                    <ul style="margin: 10px 0; padding-left: 20px; color: #555;">
+                        <li><code>patient001.csv</code> ↔ <code>patient001.dcm</code></li>
+                        <li><code>study_001.csv</code> ↔ <code>study_001.dcm</code></li>
+                        <li>或CSV中的Path列包含的patient_id与DICOM文件名匹配</li>
+                    </ul>
+                    <p style="margin: 5px 0; color: #555;">
+                        ${filesWithDicom === 0 
+                            ? '⚠️ <strong>建议:</strong> 请确保CSV和DICOM文件名有相同的标识符' 
+                            : '✅ 已成功匹配 ' + filesWithDicom + ' 对文件'}
+                    </p>
+                </div>
+            `;
+            
+            entitiesList.innerHTML = summaryHTML;
+        }
+
+        // 全局变量：保存当前检测结果和批次ID
+        let currentDetectionResult = null;
+        let currentBatchId = null;
+        let currentDicomPath = null;  // 保存DICOM文件路径
+        let currentCsvPath = null;    // 保存CSV文件路径
+        let currentTxtPath = null;    // 保存TXT文件路径
+        
+        // 辅助函数：从检测结果中提取patient_id
+        function extractPatientId(result) {
+            // 从text_entities中查找PATH类型，提取patient_id
+            const entities = result.text_entities || result.entities || [];
+            for (const entity of entities) {
+                if (entity.type === 'PATH' && entity.text) {
+                    const match = entity.text.match(/patient(\d+)/i);
+                    if (match) {
+                        return 'patient' + match[1];
+                    }
+                }
+            }
+            // 如果没找到，使用ingest_id
+            return result.ingest_id || 'unknown';
+        }
+        
+        // 辅助函数：将实体列表转换为CSV数据格式
+        function convertEntitiesToCSVData(entities) {
+            const csvData = {};
+            for (const entity of entities) {
+                const column = entity.column || entity.type;
+                csvData[column] = entity.text;
+            }
+            return csvData;
+        }
+
+        // 执行保护
+        async function executeProtection() {
+            console.log('[DEBUG] 执行保护函数调用，当前状态:', {
+                currentDetectionResult: currentDetectionResult,
+                currentBatchId: currentBatchId,
+                currentDicomPath: currentDicomPath
+            });
+            
+            const protectBtn = document.getElementById('protectBtn');
+            protectBtn.disabled = true;
+            protectBtn.textContent = '正在保护...';
+            
+            try {
+                updateProgress(10, '开始执行保护...');
+                showProgress();
+                
+                // 判断是单文件还是批量
+                let protectionData;
+                
+                // 如果有检测结果，使用检测结果
+                if (currentDetectionResult) {
+                if (currentDetectionResult.results && currentDetectionResult.results.length > 0) {
+                    // 批量模式：已经是正确格式
+                    protectionData = {
+                        detection_result: currentDetectionResult,
+                            batch_id: currentBatchId || `batch_${Date.now()}`
+                    };
+                } else {
+                    // 单文件模式：转换为批量格式
+                    // 从当前检测结果构造一个批量格式的结果
+                    const singleResult = {
+                        results: [{
+                            matched: true,
+                            patient_id: extractPatientId(currentDetectionResult),
+                            csv_data: convertEntitiesToCSVData(currentDetectionResult.text_entities || []),
+                            dicom_metadata: {
+                                filepath: currentDicomPath || null,  // 需要从上传时保存
+                                patient_id: extractPatientId(currentDetectionResult)
+                            },
+                            confidence: 1.0,
+                            risk_level: 'high'
+                        }],
+                        total_patients: 1,
+                        matched: 1
+                    };
+                    protectionData = {
+                        detection_result: singleResult,
+                            batch_id: currentBatchId || `batch_${Date.now()}`
+                        };
+                    }
+                } else {
+                    // 没有检测结果，尝试使用直接文件路径进行保护
+                    if (!currentCsvPath && !currentTxtPath && !currentDicomPath) {
+                        showError('请先上传文件（CSV、TXT或DICOM）或执行检测');
+                        protectBtn.disabled = false;
+                        protectBtn.textContent = '执行保护';
+                        hideProgress();
+                        return;
+                    }
+                    
+                    // 使用直接文件路径进行保护
+                    protectionData = {
+                        file_paths: {
+                            csv_path: currentCsvPath,
+                            txt_path: currentTxtPath,
+                            dicom_path: currentDicomPath
+                        },
+                        batch_id: currentBatchId || `batch_${Date.now()}`
+                    };
+                }
+                
+                // 调用保护API
+                const response = await fetch('/api/protect_execute', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(protectionData)
+                });
+                
+                updateProgress(60, '保护中...');
+                
+                const result = await response.json();
+                
+                if (result.batch_id) {
+                    currentBatchId = result.batch_id;
+                    updateProgress(100, '保护完成！');
+                    
+                    document.getElementById('protectionResults').style.display = 'block';
+                    document.getElementById('protectionStatus').innerHTML = `
+                        <div class="protection-success">
+                            <h3>✅ 保护完成</h3>
+                            <p><strong>批次ID:</strong> ${result.batch_id}</p>
+                            <p><strong>保护数量:</strong> ${result.protected_count} 个对象</p>
+                            <p><strong>密钥提示:</strong> ${result.key_hint}</p>
+                            <p><strong>输出DICOM:</strong> ${result.output_dicom}</p>
+                            <p><strong>输出文本:</strong> ${result.output_text}</p>
+                            <p><strong>审计清单:</strong> ${result.audit_manifest}</p>
+                        </div>
+                    `;
+                    
+                    // 显示入库按钮
+                    document.getElementById('storageIngestBtn').style.display = 'inline-flex';
+                    document.getElementById('storageIngestBtn').onclick = function() {
+                        storageIngest(currentBatchId);
+                    };
+                    
+                    document.getElementById('protectionResults').scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    showError('保护失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                showError('保护过程出错: ' + error.message);
+            } finally {
+                hideProgress();
+                protectBtn.disabled = false;
+                protectBtn.textContent = '执行保护';
+            }
+        }
+
+        // 存储入库
+        async function storageIngest(batchId) {
+            try {
+                updateProgress(10, '开始存储入库...');
+                showProgress();
+                
+                const response = await fetch('/api/storage/ingest', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        batch_id: batchId
+                    })
+                });
+                
+                updateProgress(60, '入库中...');
+                
+                const result = await response.json();
+                
+                if (result.batch_id) {
+                    updateProgress(100, '入库完成！');
+                    alert(`入库成功！\n批次ID: ${result.batch_id}\n入库数量: ${result.ingested}\n审计SHA256: ${result.audit_sha256}`);
+                } else {
+                    showError('入库失败: ' + (result.error || '未知错误'));
+                }
+            } catch (error) {
+                showError('入库过程出错: ' + error.message);
+            } finally {
+                hideProgress();
+            }
+        }
+
+        // 显示存储管理
+        function showStorageManagement() {
+            document.getElementById('storageManagement').style.display = 'block';
+            document.getElementById('storageManagement').scrollIntoView({ behavior: 'smooth' });
+            loadStorageObjects();
+        }
+
+        // 存储标签页切换
+        function showStorageTab(tabName) {
+            const tabContents = document.querySelectorAll('#storageManagement .tab-content');
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            const tabBtns = document.querySelectorAll('#storageManagement .tab-btn');
+            tabBtns.forEach(btn => btn.classList.remove('active'));
+            
+            const targetTab = document.getElementById(tabName);
+            if (targetTab) {
+                targetTab.classList.add('active');
+            }
+            
+            if (window.event && window.event.target) {
+                window.event.target.classList.add('active');
+            }
+        }
+
+        // 加载存储对象
+        async function loadStorageObjects() {
+            try {
+                const response = await fetch('/api/storage/list?limit=20&offset=0');
+                const result = await response.json();
+                
+                const list = document.getElementById('storageObjectsList');
+                if (result.objects && result.objects.length > 0) {
+                    let html = '<div class="entity-group">';
+                    result.objects.forEach(obj => {
+                        html += `
+                            <div class="entity-item">
+                                <span class="entity-type">ID#${obj.id}</span>
+                                <span class="entity-text">
+                                    <strong>Patient:</strong> ${obj.patient_id}<br>
+                                    <strong>SOP:</strong> ${obj.sop_uid || 'N/A'}<br>
+                                    <strong>Batch:</strong> ${obj.batch_id}<br>
+                                    <strong>DICOM SHA256:</strong> ${obj.dicom_sha256.substring(0, 16)}...
+                                </span>
+                                <span class="entity-confidence">${new Date(obj.timestamp).toLocaleString()}</span>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    list.innerHTML = html;
+                } else {
+                    list.innerHTML = '<p style="text-align:center; color:#666;">暂无存储对象</p>';
+                }
+            } catch (error) {
+                document.getElementById('storageObjectsList').innerHTML = `<p style="color:red;">加载失败: ${error.message}</p>`;
+            }
+        }
+
+        // 加载批次列表
+        async function loadStorageBatches() {
+            try {
+                const response = await fetch('/api/storage/batches?limit=20');
+                const result = await response.json();
+                
+                const list = document.getElementById('storageBatchesList');
+                if (result.batches && result.batches.length > 0) {
+                    let html = '<div class="entity-group">';
+                    result.batches.forEach(batch => {
+                        html += `
+                            <div class="entity-item">
+                                <span class="entity-type">BATCH</span>
+                                <span class="entity-text">
+                                    <strong>ID:</strong> ${batch.batch_id}<br>
+                                    <strong>对象数:</strong> ${batch.count || 'N/A'}<br>
+                                    <strong>审计SHA256:</strong> ${batch.audit_sha256 ? batch.audit_sha256.substring(0, 16) + '...' : 'N/A'}<br>
+                                    <strong>签名:</strong> ${batch.has_signature ? '✅ 已签名' : '❌ 未签名'}
+                                </span>
+                                <span class="entity-confidence">${new Date(batch.timestamp).toLocaleString()}</span>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    list.innerHTML = html;
+                } else {
+                    list.innerHTML = '<p style="text-align:center; color:#666;">暂无批次</p>';
+                }
+            } catch (error) {
+                document.getElementById('storageBatchesList').innerHTML = `<p style="color:red;">加载失败: ${error.message}</p>`;
+            }
+        }
+
+        // 加载存储统计
+        async function loadStorageStats() {
+            try {
+                const response = await fetch('/api/storage/stats');
+                const result = await response.json();
+                
+                const display = document.getElementById('storageStatsDisplay');
+                display.innerHTML = `
+                    <div class="batch-summary">
+                        <h4>📊 存储统计</h4>
+                        <p><strong>总对象数:</strong> ${result.total_objects}</p>
+                        <p><strong>总批次数:</strong> ${result.total_batches}</p>
+                        <p><strong>仓库路径:</strong> ${result.repo_path}</p>
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('storageStatsDisplay').innerHTML = `<p style="color:red;">加载失败: ${error.message}</p>`;
+            }
+        }
+
+        // 从仓库验证
+        async function verifyRepo() {
+            const patientId = document.getElementById('verifyPatientId').value.trim();
+            if (!patientId) {
+                alert('请输入Patient ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/verify/repo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        patient_id: patientId
+                    })
+                });
+                
+                const result = await response.json();
+                displayVerificationResults(result, '仓库验证');
+            } catch (error) {
+                alert('验证失败: ' + error.message);
+            }
+        }
+
+        // 构建并验证Bundle
+        async function buildAndVerifyBundle() {
+            const patientId = document.getElementById('verifyPatientId').value.trim();
+            if (!patientId) {
+                alert('请输入Patient ID');
+                return;
+            }
+            
+            try {
+                // 先构建bundle
+                const buildResp = await fetch('/api/storage/bundle', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        patient_id: patientId
+                    })
+                });
+                
+                const buildResult = await buildResp.json();
+                
+                if (buildResult.status !== 'success') {
+                    alert('构建Bundle失败: ' + (buildResult.error || '未知错误'));
+                    return;
+                }
+                
+                // 再验证bundle
+                const verifyResp = await fetch('/api/verify/bundle', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        patient_id: patientId
+                    })
+                });
+                
+                const verifyResult = await verifyResp.json();
+                displayVerificationResults(verifyResult, 'Bundle验证', buildResult.bundle_path);
+                
+            } catch (error) {
+                alert('操作失败: ' + error.message);
+            }
+        }
+
+        // 显示验证结果
+        function displayVerificationResults(result, title, bundlePath) {
+            const display = document.getElementById('verificationResults');
+            
+            let html = `<h4>${title}结果</h4>`;
+            
+            if (result.error) {
+                html += `<div class="risk-item high"><p style="color:red;">错误: ${result.error}</p></div>`;
+            } else {
+                // 签名验证
+                if (result.sig_ok !== null) {
+                    html += `
+                        <div class="risk-item ${result.sig_ok ? 'low' : 'high'}">
+                            <h5>${result.sig_ok ? '✅' : '❌'} SPHINCS+签名验证</h5>
+                            <p><strong>状态:</strong> ${result.sig_ok ? '通过' : '失败'}</p>
+                        </div>
+                    `;
+                }
+                
+                // 对验证结果
+                if (result.pair) {
+                    const issues = result.pair.issues || [];
+                    html += `
+                        <div class="risk-item ${issues.length === 0 ? 'low' : 'medium'}">
+                            <h5>📋 DICOM-JSON对验证</h5>
+                            <p><strong>DICOM:</strong> ${result.pair.dicom}</p>
+                            <p><strong>JSON:</strong> ${result.pair.text}</p>
+                            <p><strong>问题数:</strong> ${issues.length}</p>
+                            ${issues.length > 0 ? `<p><strong>问题:</strong> ${issues.join('; ')}</p>` : '<p style="color:green;">✅ 无问题</p>'}
+                        </div>
+                    `;
+                    
+                    // Header信息
+                    if (result.pair.headers) {
+                        html += `<div class="risk-item low"><h5>📝 DICOM Header</h5>`;
+                        for (const [key, val] of Object.entries(result.pair.headers)) {
+                            html += `<p><strong>${key}:</strong> ${val}</p>`;
+                        }
+                        html += `</div>`;
+                    }
+                }
+                
+                // Bundle路径
+                if (bundlePath) {
+                    html += `
+                        <div class="risk-item low">
+                            <h5>📦 Bundle位置</h5>
+                            <p><strong>路径:</strong> ${bundlePath}</p>
+                            <a href="/api/storage/bundle/${document.getElementById('verifyPatientId').value}/download" 
+                               class="btn btn-success" style="margin-top:10px;">下载Bundle</a>
+                        </div>
+                    `;
+                }
+            }
+            
+            display.innerHTML = html;
+        }
+
+        // 显示进度
+        // 显示进度（统一函数，避免重复定义）
+        function showProgress() {
+            const progressEl = document.getElementById('progress');
+            if (progressEl) {
+                progressEl.style.display = 'block';
+            updateProgress(0, '开始处理...');
+            } else {
+                console.error('[ERROR] progress元素未找到');
+            }
+        }
+
+        // 隐藏进度
+        function hideProgress() {
+            document.getElementById('progress').style.display = 'none';
+        }
+
+        // 更新进度（统一函数，避免重复定义）
+        function updateProgress(percent, text) {
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            if (progressFill) {
+                progressFill.style.width = percent + '%';
+            } else {
+                console.warn('[WARN] progressFill元素未找到');
+            }
+            if (progressText) {
+                progressText.textContent = text || '';
+            } else {
+                console.warn('[WARN] progressText元素未找到');
+            }
+            console.log(`[PROGRESS] ${percent}% - ${text || ''}`);
+        }
+
+        // 显示错误
+        function showError(message) {
+            console.error('[ERROR]', message);
+            alert('错误: ' + message);
+            // 同时显示在页面上
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #f44336; color: white; padding: 15px 20px; border-radius: 8px; z-index: 10000; max-width: 400px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);';
+            errorDiv.innerHTML = `<strong>错误</strong><br>${message}`;
+            document.body.appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+
+        // 标签页切换
+        function showTab(tabName) {
+            // 隐藏所有标签内容
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            // 移除所有标签按钮的激活状态
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            tabBtns.forEach(btn => btn.classList.remove('active'));
+            
+            // 显示选中的标签内容
+            const targetTab = document.getElementById(tabName);
+            if (targetTab) {
+                targetTab.classList.add('active');
+            }
+            
+            // 激活对应的标签按钮（如果是从按钮点击触发的）
+            if (window.event && window.event.target) {
+                window.event.target.classList.add('active');
+            } else {
+                // 程序化调用时，根据tabName找到对应按钮
+                const tabNameMap = {
+                    'textResults': '文本实体',
+                    'imageResults': '影像区域',
+                    'crossModalResults': '跨模态关联',
+                    'riskAssessment': '风险评估'
+                };
+                const btnText = tabNameMap[tabName];
+                if (btnText) {
+                    tabBtns.forEach(btn => {
+                        if (btn.textContent === btnText) {
+                            btn.classList.add('active');
+                        }
+                    });
+                }
+            }
+        }
+
+        // 处理新工作流
+        async function handleNewWorkflow() {
+            const csvFile = document.getElementById('csvMetadataFile').files[0];
+            const zipFile = document.getElementById('filesFolderZip').files[0];
+            const folderFiles = document.getElementById('filesFolderFiles').files;
+            
+            if (!csvFile) {
+                alert('请上传CSV元数据文件');
+                return;
+            }
+            
+            if (!zipFile && (!folderFiles || folderFiles.length === 0)) {
+                alert('请上传files文件夹（ZIP压缩包或直接选择文件夹）');
+                return;
+            }
+            
+            showProgress();
+            updateProgress(0, '开始处理新工作流...');
+            
+            try {
+                // 步骤1: 上传CSV文件
+                updateProgress(10, '上传CSV元数据文件...');
+                const csvFormData = new FormData();
+                csvFormData.append('csv', csvFile);
+                
+                const csvResponse = await fetch('/api/upload_csv', {
+                    method: 'POST',
+                    body: csvFormData
+                });
+                
+                if (!csvResponse.ok) {
+                    const errorText = await csvResponse.text();
+                    throw new Error('CSV上传失败: ' + errorText);
+                }
+                
+                const csvResult = await csvResponse.json();
+                console.log('CSV上传成功:', csvResult);
+                
+                // 步骤2: 上传files文件夹
+                updateProgress(30, '上传files文件夹...');
+                let filesRoot = null;
+                
+                if (zipFile) {
+                    // 上传ZIP文件
+                    const zipFormData = new FormData();
+                    zipFormData.append('files_zip', zipFile);
+                    
+                    const zipResponse = await fetch('/api/upload_files_folder', {
+                        method: 'POST',
+                        body: zipFormData
+                    });
+                    
+                    if (!zipResponse.ok) {
+                        const errorText = await zipResponse.text();
+                        throw new Error('ZIP上传失败: ' + errorText);
+                    }
+                    
+                    const zipResult = await zipResponse.json();
+                    filesRoot = zipResult.files_root;
+                    console.log('ZIP上传成功:', zipResult);
+                } else if (folderFiles && folderFiles.length > 0) {
+                    // 上传文件夹内容
+                    const filesFormData = new FormData();
+                    for (let i = 0; i < folderFiles.length; i++) {
+                        filesFormData.append('files[]', folderFiles[i], folderFiles[i].webkitRelativePath || folderFiles[i].name);
+                    }
+                    
+                    const filesResponse = await fetch('/api/upload_files_folder', {
+                        method: 'POST',
+                        body: filesFormData
+                    });
+                    
+                    if (!filesResponse.ok) {
+                        const errorText = await filesResponse.text();
+                        throw new Error('文件夹上传失败: ' + errorText);
+                    }
+                    
+                    const filesResult = await filesResponse.json();
+                    filesRoot = filesResult.files_root;
+                    console.log('文件夹上传成功:', filesResult);
+                }
+                
+                if (!filesRoot) {
+                    throw new Error('无法获取files文件夹路径');
+                }
+                
+                // 步骤3: 处理数据
+                updateProgress(50, '处理数据（解析CSV、TXT、DICOM）...');
+                const processResponse = await fetch('/api/process_files', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        csv_path: csvResult.csv_path,
+                        files_root: filesRoot
+                    })
+                });
+                
+                if (!processResponse.ok) {
+                    const errorText = await processResponse.text();
+                    throw new Error('数据处理失败: ' + errorText);
+                }
+                
+                const processResult = await processResponse.json();
+                console.log('处理结果:', processResult);
+                
+                updateProgress(100, '处理完成！');
+                
+                // 保存结果到全局变量
+                currentDetectionResult = processResult;
+                currentBatchId = `new_workflow_${Date.now()}`;
+                
+                // 显示结果
+                displayNewWorkflowResults(processResult);
+                
+            } catch (error) {
+                console.error('新工作流处理失败:', error);
+                showError('处理失败: ' + error.message);
+            } finally {
+                hideProgress();
+            }
+        }
+
+        // 显示新工作流结果
+        function displayNewWorkflowResults(result) {
+            document.getElementById('results').style.display = 'block';
+            
+            // 显示处理摘要
+            const entitiesList = document.getElementById('entitiesList');
+            entitiesList.innerHTML = `
+                <div class="batch-summary" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h3 style="color: white; margin-bottom: 15px;">✅ 新工作流处理完成</h3>
+                    <p><strong>处理的Series数量:</strong> ${result.processed || 0}</p>
+                    <p><strong>成功匹配:</strong> ${result.matched || 0}</p>
+                    <p><strong>总Series数:</strong> ${result.total_series || 0}</p>
+                    <p><strong>从CSV提取的PHI实体:</strong> ${result.total_csv_phi || 0}</p>
+                    <p><strong>从TXT提取的PHI实体:</strong> ${result.total_txt_phi || 0}</p>
+                    <p><strong>从DICOM提取的PHI实体:</strong> ${result.total_dicom_phi || 0}</p>
+                    <p><strong>输出文件:</strong> ${result.output || 'N/A'}</p>
+                </div>
+            `;
+            
+            // 如果有详细结果，显示series列表
+            if (result.output) {
+                entitiesList.innerHTML += `
+                    <div style="margin-top: 20px;">
+                        <h4>处理详情</h4>
+                        <p style="color: #666;">详细结果已保存到: <code>${result.output}</code></p>
+                        <p style="color: #666; margin-top: 10px;">
+                            结果文件包含每个series的详细信息：
+                            <ul style="margin-top: 10px; padding-left: 20px;">
+                                <li>从CSV提取的PHI信息</li>
+                                <li>从TXT文件提取的PHI信息</li>
+                                <li>从DICOM文件提取的ROI信息和元数据</li>
+                                <li>跨模态对齐结果</li>
+                            </ul>
+                        </p>
+                    </div>
+                `;
+            }
+            
+            // 显示跨模态关联
+            const crossModalList = document.getElementById('crossModalList');
+            crossModalList.innerHTML = `
+                <div style="padding: 20px; text-align: center; color: #666;">
+                    <h4>跨模态对齐结果</h4>
+                    <p>系统已对每个series执行了跨模态对齐：</p>
+                    <ul style="text-align: left; display: inline-block; margin-top: 15px;">
+                        <li>✅ 解析CSV元数据，提取PHI信息</li>
+                        <li>✅ 处理TXT文件，使用正则表达式提取PHI</li>
+                        <li>✅ 解析DICOM文件，提取ROI信息</li>
+                        <li>✅ 使用字符串比对进行跨模态对齐</li>
+                    </ul>
+                    <p style="margin-top: 20px; color: #28a745;">
+                        <strong>成功匹配 ${result.matched || 0} 个series</strong>
+                    </p>
+                </div>
+            `;
+            
+            // 显示ROI信息
+            const roiDisplay = document.getElementById('roiDisplay');
+            roiDisplay.innerHTML = `
+                <div style="padding: 20px; text-align: center; color: #666;">
+                    <h4>DICOM ROI信息</h4>
+                    <p>系统已从DICOM文件中提取ROI信息：</p>
+                    <ul style="text-align: left; display: inline-block; margin-top: 15px;">
+                        <li>从RT Structure Set提取ROI轮廓</li>
+                        <li>从Segmentation对象提取ROI</li>
+                        <li>从Presentation State提取ROI区域</li>
+                        <li>检测烧录文本区域</li>
+                    </ul>
+                    <p style="margin-top: 20px; color: #17a2b8;">
+                        详细ROI信息请查看结果JSON文件
+                    </p>
+                </div>
+            `;
+            
+            // 显示风险评估（按照图2的样式）
+            const riskMetrics = document.getElementById('riskMetrics');
+            if (riskMetrics) {
+                const metrics = result.metrics || {};
+                const f1Score = (metrics.f1_score || 0) * 100;
+                const processingTime = metrics.processing_time || 0;
+                const highRiskCount = metrics.high_risk_entities_count || 0;
+                
+                riskMetrics.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #2196F3;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">F1分数</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #2196F3;">${f1Score.toFixed(1)}%</div>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">处理时间</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #4CAF50;">${processingTime.toFixed(2)}秒</div>
+                        </div>
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">高风险实体</div>
+                            <div style="font-size: 24px; font-weight: 700; color: #dc3545;">${highRiskCount}</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 默认切换到文本实体标签页
+            showTab('textResults');
+        }
+
+        // 下载结果
+        function downloadResults() {
+            // 实际应用中应该生成并下载结果文件
+            alert('下载功能待实现');
+        }
+    </script>
+</body>
+</html>

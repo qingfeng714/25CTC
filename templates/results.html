@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>检测结果 - 医疗影像隐私保护系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>医疗影像隐私检测结果</h1>
+            <p>检测ID: {{ ingest_id }}</p>
+        </header>
+
+        <div class="results-section">
+            <input type="hidden" id="ingestId" value="{{ ingest_id }}">
+            
+            <div class="results-container">
+                <div class="text-results">
+                    <h3>敏感信息检测结果</h3>
+                    <div id="phiTextDisplay" class="text-display">
+                        等待检测结果...
+                    </div>
+                </div>
+                
+                <div class="image-results">
+                    <h3>影像预览</h3>
+                    <div class="dicom-viewer">
+                        <canvas id="cornerstoneCanvas" width="400" height="300"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button id="protectBtn" class="btn-success">执行数据保护</button>
+                <a href="/" class="btn-secondary">返回首页</a>
+            </div>
+        </div>
+
+        <div id="protectionResults" class="protection-section" style="display: none;">
+            <h2>数据保护结果</h2>
+            
+            <div class="protected-content">
+                <div class="protected-text">
+                    <h3>脱敏后文本</h3>
+                    <div id="protectedTextDisplay" class="text-display"></div>
+                </div>
+                
+                <div class="protected-image">
+                    <h3>受保护影像</h3>
+                    <div class="dicom-viewer">
+                        <canvas id="protectedCanvas" width="400" height="300"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="audit-info">
+                <h3>审计信息</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>密钥ID：</label>
+                        <span id="keyId"></span>
+                    </div>
+                    <div class="info-item">
+                        <label>签名哈希：</label>
+                        <span id="signatureHash"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button id="downloadBtn" class="btn-info">下载保护文件</button>
+                <a href="/" class="btn-secondary">完成</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
