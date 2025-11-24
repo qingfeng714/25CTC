@@ -1,0 +1,50 @@
+                                 FINAL REPORT
+PATIENT INFORMATION:
+===================
+Name: Patient_10000032
+Medical Record Number: MRN10000032
+Date of Birth: 1976-07-19
+Age: 49 years
+Gender: Female
+
+EXAMINATION INFORMATION:
+=======================
+Exam Date: 2021-07-23
+Study ID: 53911762
+Ordering Physician: Dr. Smith
+Attending Physician: Dr. Johnson
+Hospital: General Hospital
+Department: Radiology
+
+REPORT:
+=======
+ EXAMINATION:  CHEST (PORTABLE AP)
+ 
+ INDICATION:  F with cough  // acute process?
+ 
+ COMPARISON:  Chest radiograph ___
+ 
+ FINDINGS: 
+ 
+ Single frontal view of the chest provided.
+ 
+ There is no focal consolidation, effusion, or pneumothorax. The
+ cardiomediastinal silhouette is normal.  Again seen are multiple clips
+ projecting over the left breast and remote left-sided rib fractures.  No free
+ air below the right hemidiaphragm is seen.
+ 
+ IMPRESSION: 
+ 
+ No acute intrathoracic process.
+
+
+
+REPORTING INFORMATION:
+======================
+Radiologist: Dr. Johnson
+Dictation Date: 2021-07-23
+Verification Date: 2021-07-23
+Medical Record Number: MRN10000032
+Accession Number: ACC-53911762
+
+*** This report contains Protected Health Information (PHI) ***

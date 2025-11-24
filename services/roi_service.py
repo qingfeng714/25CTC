@@ -20,8 +20,9 @@ PHI_TAGS = [
     ("PatientBirthDate",   (0x0010,0x0030)),
     ("PatientSex",         (0x0010,0x0040)),
     ("PatientAge",         (0x0010,0x1010)),
-    ("AccessionNumber",    (0x0008,0x0050)),
-    ("StudyInstanceUID",   (0x0020,0x000D)),
+    ("AccessionNumber",    (0x0008,0x0050)),  # 检查号（由RIS系统生成）
+    ("StudyID",            (0x0020,0x0010)),  # 检查ID（短标识符）
+    ("StudyInstanceUID",   (0x0020,0x000D)),  # 检查实例UID（唯一标识符）
     ("SeriesInstanceUID",  (0x0020,0x000E)),
     ("SOPInstanceUID",     (0x0008,0x0018)),
     ("StudyDate",          (0x0008,0x0020)),
@@ -41,6 +42,8 @@ class DicomProcessingResult:
     patient_name: Optional[str] = None
     accession: Optional[str] = None
     study_date: Optional[str] = None
+    study_id: Optional[str] = None  # 检查ID (0020,0010)
+    study_instance_uid: Optional[str] = None  # Study Instance UID (0020,000D)
     institution: Optional[str] = None
     patient_sex: Optional[str] = None
     patient_age: Optional[str] = None
@@ -131,6 +134,8 @@ class DicomProcessor:
                 patient_name=header.get("PatientName"),
                 accession=header.get("AccessionNumber"),
                 study_date=header.get("StudyDate"),
+                study_id=header.get("StudyID"),  # 检查ID (0020,0010)
+                study_instance_uid=header.get("StudyInstanceUID"),  # Study Instance UID (0020,000D)
                 institution=header.get("InstitutionName"),
                 patient_sex=header.get("PatientSex"),
                 patient_age=header.get("PatientAge"),

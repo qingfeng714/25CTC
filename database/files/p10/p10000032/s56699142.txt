@@ -1,0 +1,49 @@
+                                 FINAL REPORT
+PATIENT INFORMATION:
+===================
+Name: Patient_10000032
+Medical Record Number: MRN10000032
+Date of Birth: 1976-07-19
+Age: 49 years
+Gender: Female
+
+EXAMINATION INFORMATION:
+=======================
+Exam Date: 2021-08-05
+Study ID: 56699142
+Ordering Physician: Dr. P7039O
+Attending Physician: Dr. P48R96
+Hospital: General Hospital
+Department: Radiology
+
+REPORT:
+=======
+ INDICATION:  49 year old woman with cirrhosis.
+ 
+ TECHNIQUE:  Frontal chest radiographs were obtained with the patient in the
+ upright position.
+ 
+ COMPARISON:  Radiographs from 2021-08-05, previous_date_1, and previous_date_2.
+ 
+ FINDINGS: 
+ 
+ The lungs are clear of focal consolidation, pleural effusion or pneumothorax. 
+ The heart size is normal.  The mediastinal contours are normal. Multiple
+ surgical clips project over the left breast, and old left rib fractures are
+ noted.
+ 
+ IMPRESSION: 
+ 
+ No acute cardiopulmonary process.
+
+
+
+REPORTING INFORMATION:
+======================
+Radiologist: Dr. P48R96
+Dictation Date: 2021-08-05
+Verification Date: 2021-08-05
+Medical Record Number: MRN10000032
+Accession Number: ACC-56699142
+
+*** This report contains Protected Health Information (PHI) ***

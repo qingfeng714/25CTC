@@ -70,6 +70,7 @@ class CrossModalAttentionService:
                     'patient_id': dicom_result.patient_id,
                     'accession': dicom_result.accession,
                     'study_date': dicom_result.study_date,
+                    'study_instance_uid': dicom_result.study_instance_uid,  # 新增：Study Instance UID
                     'institution': dicom_result.institution,
                     'patient_sex': dicom_result.patient_sex,
                     'patient_age': dicom_result.patient_age
@@ -224,12 +225,14 @@ class CrossModalAttentionService:
                     
                     # 为每个列值创建一个敏感信息实体
                     # 实体类型使用列名，实体文本使用列值
+                    # 计算置信度
+                    confidence = self._calculate_entity_confidence(entity_type, col_value_str, col_name, source='csv_metadata')
                     entities.append({
                         'type': entity_type,
                         'text': col_value_str,
                         'start': 0,
                         'end': len(col_value_str),
-                        'confidence': 0.95,  # CSV列内容置信度较高
+                        'confidence': confidence,
                         'column': col_name,
                         'column_value': col_value_str
                     })
@@ -460,6 +463,8 @@ class CrossModalAttentionService:
                                 'patient_name': dicom_result.patient_name,
                                 'accession': dicom_result.accession,
                                 'study_date': dicom_result.study_date,
+                                'study_id': dicom_result.study_id,  # 检查ID (0020,0010)
+                                'study_instance_uid': dicom_result.study_instance_uid,  # Study Instance UID (0020,000D)
                                 'institution': dicom_result.institution,
                                 'patient_sex': dicom_result.patient_sex,
                                 'patient_age': dicom_result.patient_age,
@@ -512,66 +517,104 @@ class CrossModalAttentionService:
                     print(f"[DEBUG] patient_id: {first_dicom.get('patient_id')}, patient_name: {first_dicom.get('patient_name')}")
                     
                     if first_dicom.get('patient_id'):
+                        patient_id = first_dicom.get('patient_id')
+                        confidence = self._calculate_entity_confidence('PATIENT_ID', patient_id, source='dicom_metadata')
                         dicom_metadata_phi_entities.append({
                             'type': 'PATIENT_ID',
-                            'text': first_dicom.get('patient_id'),
+                            'text': patient_id,
                             'start': 0,
-                            'end': len(first_dicom.get('patient_id')),
-                            'confidence': 0.99,
+                            'end': len(patient_id),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if first_dicom.get('patient_name'):
+                        patient_name = first_dicom.get('patient_name')
+                        confidence = self._calculate_entity_confidence('NAME', patient_name, source='dicom_metadata')
                         dicom_metadata_phi_entities.append({
                             'type': 'NAME',
-                            'text': first_dicom.get('patient_name'),
+                            'text': patient_name,
                             'start': 0,
-                            'end': len(first_dicom.get('patient_name')),
-                            'confidence': 0.95,
+                            'end': len(patient_name),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if first_dicom.get('patient_sex'):
+                        patient_sex = first_dicom.get('patient_sex')
+                        confidence = self._calculate_entity_confidence('SEX', patient_sex, source='dicom_metadata')
                         dicom_metadata_phi_entities.append({
                             'type': 'SEX',
-                            'text': first_dicom.get('patient_sex'),
+                            'text': patient_sex,
                             'start': 0,
-                            'end': len(first_dicom.get('patient_sex')),
-                            'confidence': 0.90,
+                            'end': len(patient_sex),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if first_dicom.get('patient_age'):
+                        patient_age = str(first_dicom.get('patient_age'))
+                        confidence = self._calculate_entity_confidence('AGE', patient_age, source='dicom_metadata')
                         dicom_metadata_phi_entities.append({
                             'type': 'AGE',
-                            'text': str(first_dicom.get('patient_age')),
+                            'text': patient_age,
                             'start': 0,
-                            'end': len(str(first_dicom.get('patient_age'))),
-                            'confidence': 0.90,
+                            'end': len(patient_age),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if first_dicom.get('accession'):
+                        accession = first_dicom.get('accession')
+                        confidence = self._calculate_entity_confidence('ACCESSION', accession, source='dicom_metadata')
                         dicom_metadata_phi_entities.append({
                             'type': 'ACCESSION',
-                            'text': first_dicom.get('accession'),
+                            'text': accession,
                             'start': 0,
-                            'end': len(first_dicom.get('accession')),
-                            'confidence': 0.90,
+                            'end': len(accession),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if first_dicom.get('institution'):
+                        institution = first_dicom.get('institution')
+                        confidence = self._calculate_entity_confidence('INSTITUTION', institution, source='dicom_metadata')
                         dicom_metadata_phi_entities.append({
                             'type': 'INSTITUTION',
-                            'text': first_dicom.get('institution'),
+                            'text': institution,
                             'start': 0,
-                            'end': len(first_dicom.get('institution')),
-                            'confidence': 0.85,
+                            'end': len(institution),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if first_dicom.get('study_date'):
+                        study_date = first_dicom.get('study_date')
+                        confidence = self._calculate_entity_confidence('STUDY_DATE', study_date, source='dicom_metadata')
                         dicom_metadata_phi_entities.append({
                             'type': 'STUDY_DATE',
-                            'text': first_dicom.get('study_date'),
+                            'text': study_date,
                             'start': 0,
-                            'end': len(first_dicom.get('study_date')),
-                            'confidence': 0.90,
+                            'end': len(study_date),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    # 提取StudyID (0020,0010) - 检查ID，短标识符
+                    if first_dicom.get('study_id'):
+                        study_id = str(first_dicom.get('study_id'))
+                        confidence = self._calculate_entity_confidence('STUDY_ID', study_id, source='dicom_metadata')
+                        dicom_metadata_phi_entities.append({
+                            'type': 'STUDY_ID',
+                            'text': study_id,
+                            'start': 0,
+                            'end': len(study_id),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    # 提取StudyInstanceUID (0020,000D) - 检查实例UID，唯一标识符
+                    if first_dicom.get('study_instance_uid'):
+                        study_uid = str(first_dicom.get('study_instance_uid'))
+                        confidence = self._calculate_entity_confidence('STUDY_INSTANCE_UID', study_uid, source='dicom_metadata')
+                        dicom_metadata_phi_entities.append({
+                            'type': 'STUDY_INSTANCE_UID',
+                            'text': study_uid,
+                            'start': 0,
+                            'end': len(study_uid),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     
@@ -595,6 +638,8 @@ class CrossModalAttentionService:
                         'patient_name': first_dicom.get('patient_name'),
                         'accession': first_dicom.get('accession'),
                         'study_date': first_dicom.get('study_date'),
+                        'study_id': first_dicom.get('study_id'),  # 检查ID (0020,0010)
+                        'study_instance_uid': first_dicom.get('study_instance_uid'),  # Study Instance UID (0020,000D)
                         'institution': first_dicom.get('institution'),
                         'patient_sex': first_dicom.get('patient_sex'),
                         'patient_age': first_dicom.get('patient_age')
@@ -770,6 +815,8 @@ class CrossModalAttentionService:
                     dicom_patient_id = dicom_metadata.get('patient_id', '')
                     
                     if csv_patient_id == dicom_patient_id:
+                        # 完全匹配时，置信度基于匹配质量计算
+                        match_confidence = self._calculate_match_confidence('patient_id_exact_match', csv_patient_id, dicom_patient_id)
                         mappings.append({
                             'csv_row': entity.get('row_index', 0),
                             'csv_column': 'Path',
@@ -778,11 +825,12 @@ class CrossModalAttentionService:
                             'dicom_field': 'patient_id',
                             'dicom_value': dicom_patient_id,
                             'match_type': 'patient_id_exact_match',
-                            'confidence': 1.0,
+                            'confidence': match_confidence,
                             'risk_level': 'critical',
                             'description': f'CSV Path中的patient_id ({csv_patient_id}) 与 DICOM patient_id 完全匹配'
                         })
                     else:
+                        # 不匹配时，置信度为0
                         mappings.append({
                             'csv_row': entity.get('row_index', 0),
                             'csv_column': 'Path',
@@ -827,6 +875,7 @@ class CrossModalAttentionService:
             
             elif entity_type == 'AGE' and 'patient_age' in dicom_metadata:
                 if str(entity_text) == str(dicom_metadata.get('patient_age', '')):
+                    match_confidence = self._calculate_match_confidence('age_match', entity_text, dicom_metadata['patient_age'])
                     mappings.append({
                         'csv_row': entity.get('row_index', 0),
                         'csv_column': entity.get('column', 'Age'),
@@ -834,13 +883,14 @@ class CrossModalAttentionService:
                         'dicom_field': 'patient_age',
                         'dicom_value': dicom_metadata['patient_age'],
                         'match_type': 'age_match',
-                        'confidence': 0.85,
+                        'confidence': match_confidence,
                         'risk_level': 'medium',
                         'description': f'年龄匹配: {entity_text}'
                     })
             
             elif entity_type == 'SEX' and 'patient_sex' in dicom_metadata:
                 if entity_text in dicom_metadata.get('patient_sex', '') or dicom_metadata.get('patient_sex', '') in entity_text:
+                    match_confidence = self._calculate_match_confidence('sex_match', entity_text, dicom_metadata['patient_sex'])
                     mappings.append({
                         'csv_row': entity.get('row_index', 0),
                         'csv_column': entity.get('column', 'Sex'),
@@ -848,7 +898,7 @@ class CrossModalAttentionService:
                         'dicom_field': 'patient_sex',
                         'dicom_value': dicom_metadata['patient_sex'],
                         'match_type': 'sex_match',
-                        'confidence': 0.90,
+                        'confidence': match_confidence,
                         'risk_level': 'medium',
                         'description': f'性别匹配: {entity_text}'
                     })
@@ -1004,12 +1054,14 @@ class CrossModalAttentionService:
                             else:
                                 cleaned_row_dict[k] = v
                         
+                        # 计算置信度
+                        confidence = self._calculate_entity_confidence(entity_type, col_value_str, col_name, source='csv_metadata')
                         csv_phi_entities.append({
                             'type': entity_type,
                             'text': col_value_str,
                             'start': 0,
                             'end': len(col_value_str),
-                            'confidence': 0.95,  # CSV列内容置信度较高
+                            'confidence': confidence,
                             'column': col_name,
                             'column_value': col_value_str,
                             'row_index': idx,
@@ -1110,6 +1162,8 @@ class CrossModalAttentionService:
                         'patient_name': dicom_result.patient_name,
                         'accession': dicom_result.accession,
                         'study_date': dicom_result.study_date,
+                        'study_id': dicom_result.study_id,  # 检查ID (0020,0010)
+                        'study_instance_uid': dicom_result.study_instance_uid,  # Study Instance UID (0020,000D)
                         'institution': dicom_result.institution,
                         'patient_sex': dicom_result.patient_sex,
                         'patient_age': dicom_result.patient_age
@@ -1117,39 +1171,101 @@ class CrossModalAttentionService:
                     
                     # 将DICOM元数据转换为文本实体
                     if dicom_result.patient_id:
+                        confidence = self._calculate_entity_confidence('PATIENT_ID', dicom_result.patient_id, source='dicom_metadata')
                         dicom_phi_entities.append({
                             'type': 'PATIENT_ID',
                             'text': dicom_result.patient_id,
                             'start': 0,
                             'end': len(dicom_result.patient_id),
-                            'confidence': 0.99,
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if dicom_result.patient_name:
+                        confidence = self._calculate_entity_confidence('NAME', dicom_result.patient_name, source='dicom_metadata')
                         dicom_phi_entities.append({
                             'type': 'NAME',
                             'text': dicom_result.patient_name,
                             'start': 0,
                             'end': len(dicom_result.patient_name),
-                            'confidence': 0.95,
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if dicom_result.patient_sex:
+                        confidence = self._calculate_entity_confidence('SEX', dicom_result.patient_sex, source='dicom_metadata')
                         dicom_phi_entities.append({
                             'type': 'SEX',
                             'text': dicom_result.patient_sex,
                             'start': 0,
                             'end': len(dicom_result.patient_sex),
-                            'confidence': 0.90,
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if dicom_result.patient_age:
+                        patient_age_str = str(dicom_result.patient_age)
+                        confidence = self._calculate_entity_confidence('AGE', patient_age_str, source='dicom_metadata')
                         dicom_phi_entities.append({
                             'type': 'AGE',
-                            'text': str(dicom_result.patient_age),
+                            'text': patient_age_str,
                             'start': 0,
-                            'end': len(str(dicom_result.patient_age)),
-                            'confidence': 0.90,
+                            'end': len(patient_age_str),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    # 提取StudyID (0020,0010) - 检查ID，短标识符
+                    if dicom_result.study_id:
+                        study_id = str(dicom_result.study_id)
+                        confidence = self._calculate_entity_confidence('STUDY_ID', study_id, source='dicom_metadata')
+                        dicom_phi_entities.append({
+                            'type': 'STUDY_ID',
+                            'text': study_id,
+                            'start': 0,
+                            'end': len(study_id),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    # 提取StudyInstanceUID (0020,000D) - 检查实例UID，唯一标识符
+                    if dicom_result.study_instance_uid:
+                        study_uid = str(dicom_result.study_instance_uid)
+                        confidence = self._calculate_entity_confidence('STUDY_INSTANCE_UID', study_uid, source='dicom_metadata')
+                        dicom_phi_entities.append({
+                            'type': 'STUDY_INSTANCE_UID',
+                            'text': study_uid,
+                            'start': 0,
+                            'end': len(study_uid),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    if dicom_result.accession:
+                        accession = str(dicom_result.accession)
+                        confidence = self._calculate_entity_confidence('ACCESSION', accession, source='dicom_metadata')
+                        dicom_phi_entities.append({
+                            'type': 'ACCESSION',
+                            'text': accession,
+                            'start': 0,
+                            'end': len(accession),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    if dicom_result.institution:
+                        institution = str(dicom_result.institution)
+                        confidence = self._calculate_entity_confidence('INSTITUTION', institution, source='dicom_metadata')
+                        dicom_phi_entities.append({
+                            'type': 'INSTITUTION',
+                            'text': institution,
+                            'start': 0,
+                            'end': len(institution),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    if dicom_result.study_date:
+                        study_date = str(dicom_result.study_date)
+                        confidence = self._calculate_entity_confidence('STUDY_DATE', study_date, source='dicom_metadata')
+                        dicom_phi_entities.append({
+                            'type': 'STUDY_DATE',
+                            'text': study_date,
+                            'start': 0,
+                            'end': len(study_date),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     
@@ -1342,6 +1458,8 @@ class CrossModalAttentionService:
                         'patient_name': dicom_result.patient_name,
                         'accession': dicom_result.accession,
                         'study_date': dicom_result.study_date,
+                        'study_id': dicom_result.study_id,  # 检查ID (0020,0010)
+                        'study_instance_uid': dicom_result.study_instance_uid,  # Study Instance UID (0020,000D)
                         'institution': dicom_result.institution,
                         'patient_sex': dicom_result.patient_sex,
                         'patient_age': dicom_result.patient_age
@@ -1457,7 +1575,7 @@ class CrossModalAttentionService:
         tensor = torch.FloatTensor(pixel_array).unsqueeze(0).unsqueeze(0).to(self.device)
         return pixel_array, tensor
     
-    def _calculate_entity_confidence(self, entity_type: str, value: str, column_name: str) -> float:
+    def _calculate_entity_confidence(self, entity_type: str, value: str, column_name: str = None, source: str = None) -> float:
         """
         根据实体类型和数据质量动态计算置信度
         
@@ -1465,6 +1583,13 @@ class CrossModalAttentionService:
         1. 实体类型重要性（ID、PATH > NAME > 其他）
         2. 数据格式正确性
         3. 数据完整性
+        4. 数据来源（DICOM元数据 > CSV > TXT）
+        
+        :param entity_type: 实体类型
+        :param value: 实体值
+        :param column_name: 列名（可选，用于CSV数据）
+        :param source: 数据来源（可选：'dicom_metadata', 'csv_metadata', 'txt_file', 'dicom_roi'）
+        :return: 计算得到的置信度（0.5-1.0）
         """
         import re
         
@@ -1475,10 +1600,29 @@ class CrossModalAttentionService:
             'ID': 0.95,           # 很高 - 身份证号
             'PHONE': 0.92,        # 高 - 电话号码
             'NAME': 0.90,         # 高 - 姓名
-            'PATIENT_SEX': 0.88,  # 中高 - 性别
-            'PATIENT_AGE': 0.85,  # 中高 - 年龄
+            'SEX': 0.88,          # 中高 - 性别
+            'PATIENT_SEX': 0.88,  # 中高 - 性别（别名）
+            'AGE': 0.85,          # 中高 - 年龄
+            'PATIENT_AGE': 0.85,  # 中高 - 年龄（别名）
+            'ACCESSION': 0.90,    # 高 - 检查号
+            'STUDY_ID': 0.90,     # 高 - 检查ID (0020,0010)
+            'STUDY_INSTANCE_UID': 0.95,  # 很高 - Study Instance UID (0020,000D)
+            'STUDY_DATE': 0.90,   # 高 - 检查日期
+            'INSTITUTION': 0.85,  # 中高 - 机构
             'ADDRESS': 0.80,      # 中 - 地址
+            'DATE': 0.88,         # 中高 - 日期
         }.get(entity_type, 0.75)
+        
+        # 数据来源调整（DICOM元数据最可靠）
+        source_boost = 0.0
+        if source == 'dicom_metadata':
+            source_boost = 0.02  # DICOM元数据最可靠
+        elif source == 'csv_metadata':
+            source_boost = 0.01  # CSV结构化数据较可靠
+        elif source == 'dicom_roi':
+            source_boost = -0.05  # ROI提取可能不准确
+        elif source == 'txt_file':
+            source_boost = -0.03  # 文本提取可能不准确
         
         # 数据质量调整
         quality_boost = 0.0
@@ -1487,11 +1631,15 @@ class CrossModalAttentionService:
         if entity_type == 'PATIENT_ID':
             if re.match(r'^patient\d{5}$', value.lower()):
                 quality_boost += 0.01  # 标准格式，总置信度达到100%
+            elif re.match(r'^patient\d+$', value.lower()):
+                quality_boost += 0.005  # 非标准格式但符合模式
         
         # 检查PATH格式
         elif entity_type == 'PATH':
             if 'patient' in value.lower() and re.search(r'\d{5}', value):
                 quality_boost += 0.01  # 包含patient ID，总置信度达到100%
+            elif 'patient' in value.lower():
+                quality_boost += 0.005
         
         # 检查电话号码格式
         elif entity_type == 'PHONE':
@@ -1499,6 +1647,8 @@ class CrossModalAttentionService:
                 quality_boost += 0.05
             elif re.match(r'^\d{11}$', value):     # 11位数字
                 quality_boost += 0.02
+            elif re.match(r'^\d{7,11}$', value):  # 7-11位数字
+                quality_boost += 0.01
         
         # 检查身份证号格式
         elif entity_type == 'ID':
@@ -1508,30 +1658,125 @@ class CrossModalAttentionService:
                 quality_boost += 0.03
         
         # 检查性别
-        elif entity_type == 'PATIENT_SEX':
-            if value.upper() in ['M', 'F', 'MALE', 'FEMALE', '男', '女']:
+        elif entity_type in ['SEX', 'PATIENT_SEX']:
+            if value.upper() in ['M', 'F', 'MALE', 'FEMALE', '男', '女', '男性', '女性']:
                 quality_boost += 0.07  # 标准值，提升到95%
+            elif len(value) <= 3:
+                quality_boost += 0.02  # 短值可能是性别
         
         # 检查年龄
-        elif entity_type == 'PATIENT_AGE':
+        elif entity_type in ['AGE', 'PATIENT_AGE']:
             try:
                 age = int(value)
                 if 0 < age < 120:  # 合理年龄范围
                     quality_boost += 0.10  # 有效年龄，提升到95%
+                elif 0 <= age <= 150:  # 稍宽范围
+                    quality_boost += 0.05
             except ValueError:
                 quality_boost -= 0.10  # 不是有效数字
+        
+        # 检查检查号（ACCESSION）
+        elif entity_type == 'ACCESSION':
+            if re.match(r'^[A-Z0-9]+$', value.upper()):  # 字母数字组合
+                quality_boost += 0.05
+            elif len(value) >= 5:
+                quality_boost += 0.02
+        
+        # 检查日期
+        elif entity_type in ['STUDY_DATE', 'DATE']:
+            # 检查常见日期格式
+            date_patterns = [
+                r'^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$',  # YYYY-MM-DD
+                r'^\d{4}\d{2}\d{2}$',  # YYYYMMDD
+                r'^\d{4}年\d{1,2}月\d{1,2}日$',  # 中文日期
+            ]
+            for pattern in date_patterns:
+                if re.match(pattern, value):
+                    quality_boost += 0.05
+                    break
+        
+        # 检查机构名称
+        elif entity_type == 'INSTITUTION':
+            if any(keyword in value for keyword in ['医院', '中心', '诊所', 'Hospital', 'Center', 'Clinic']):
+                quality_boost += 0.05
+            elif len(value) >= 3:
+                quality_boost += 0.02
         
         # 数据长度检查（不能太短或太长）
         if entity_type == 'NAME':
             if 2 <= len(value) <= 50:
                 quality_boost += 0.05
-            else:
+            elif len(value) > 50:
                 quality_boost -= 0.10
+            elif len(value) < 2:
+                quality_boost -= 0.05
         
         # 最终置信度（确保在0.5-1.0范围内）
-        final_confidence = min(1.0, max(0.5, base_confidence + quality_boost))
+        final_confidence = min(1.0, max(0.5, base_confidence + quality_boost + source_boost))
         
         return round(final_confidence, 2)
+    
+    def _calculate_match_confidence(self, match_type: str, value1: str, value2: str) -> float:
+        """
+        计算匹配的置信度
+        
+        :param match_type: 匹配类型（'patient_id_exact_match', 'name_match', 'age_match', 'sex_match'等）
+        :param value1: 第一个值
+        :param value2: 第二个值
+        :return: 匹配置信度（0.0-1.0）
+        """
+        if match_type == 'patient_id_exact_match':
+            # 完全匹配时，基于值的格式质量计算
+            if value1 == value2:
+                # 检查格式质量
+                base_conf = 0.95
+                if len(value1) >= 5 and 'patient' in value1.lower():
+                    return 1.0
+                return base_conf
+            return 0.0
+        
+        elif match_type == 'name_match':
+            # 姓名匹配：基于相似度
+            score = _fuzzy_ratio(value1, value2)
+            return round(score / 100.0, 2)
+        
+        elif match_type == 'name_match_fuzzy':
+            # 模糊匹配：相似度稍低
+            score = _fuzzy_ratio(value1, value2)
+            return round(score / 100.0, 2)
+        
+        elif match_type == 'age_match':
+            # 年龄匹配：完全匹配时较高置信度
+            if str(value1) == str(value2):
+                try:
+                    age = int(value1)
+                    if 0 < age < 120:
+                        return 0.90  # 合理年龄范围，高置信度
+                    else:
+                        return 0.75  # 不合理年龄范围，中等置信度
+                except ValueError:
+                    return 0.70
+            return 0.0
+        
+        elif match_type == 'sex_match':
+            # 性别匹配：基于值的标准性
+            v1_upper = str(value1).upper()
+            v2_upper = str(value2).upper()
+            standard_values = ['M', 'F', 'MALE', 'FEMALE', '男', '女']
+            
+            if v1_upper == v2_upper:
+                if v1_upper in standard_values:
+                    return 0.95  # 标准值，高置信度
+                else:
+                    return 0.85  # 非标准值，中等置信度
+            elif (v1_upper in standard_values and v2_upper in standard_values):
+                # 都是标准值但不同（如M和MALE），中等置信度
+                return 0.80
+            return 0.0
+        
+        # 默认：基于字符串相似度
+        score = _fuzzy_ratio(value1, value2)
+        return round(score / 100.0, 2)
     
     def _extract_entities(self, text: str) -> List[Dict]:
         """增强的实体识别"""

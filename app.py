@@ -175,40 +175,103 @@ def create_app(config=None):
                 if dicom_result:
                     # 提取DICOM元数据作为文本实体
                     text_entities = []
+                    # 使用跨模态服务计算置信度
                     if dicom_result.patient_id:
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('PATIENT_ID', dicom_result.patient_id, source='dicom_metadata')
                         text_entities.append({
                             'type': 'PATIENT_ID',
                             'text': dicom_result.patient_id,
                             'start': 0,
                             'end': len(dicom_result.patient_id),
-                            'confidence': 0.99,
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if dicom_result.patient_name:
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('NAME', dicom_result.patient_name, source='dicom_metadata')
                         text_entities.append({
                             'type': 'NAME',
                             'text': dicom_result.patient_name,
                             'start': 0,
                             'end': len(dicom_result.patient_name),
-                            'confidence': 0.95,
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if dicom_result.patient_sex:
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('SEX', dicom_result.patient_sex, source='dicom_metadata')
                         text_entities.append({
                             'type': 'SEX',
                             'text': dicom_result.patient_sex,
                             'start': 0,
                             'end': len(dicom_result.patient_sex),
-                            'confidence': 0.90,
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     if dicom_result.patient_age:
+                        patient_age_str = str(dicom_result.patient_age)
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('AGE', patient_age_str, source='dicom_metadata')
                         text_entities.append({
                             'type': 'AGE',
-                            'text': str(dicom_result.patient_age),
+                            'text': patient_age_str,
                             'start': 0,
-                            'end': len(str(dicom_result.patient_age)),
-                            'confidence': 0.90,
+                            'end': len(patient_age_str),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    # 提取StudyID (0020,0010) - 检查ID，短标识符
+                    if dicom_result.study_id:
+                        study_id = str(dicom_result.study_id)
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('STUDY_ID', study_id, source='dicom_metadata')
+                        text_entities.append({
+                            'type': 'STUDY_ID',
+                            'text': study_id,
+                            'start': 0,
+                            'end': len(study_id),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    # 提取StudyInstanceUID (0020,000D) - 检查实例UID，唯一标识符
+                    if dicom_result.study_instance_uid:
+                        study_uid = str(dicom_result.study_instance_uid)
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('STUDY_INSTANCE_UID', study_uid, source='dicom_metadata')
+                        text_entities.append({
+                            'type': 'STUDY_INSTANCE_UID',
+                            'text': study_uid,
+                            'start': 0,
+                            'end': len(study_uid),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    if dicom_result.accession:
+                        accession = str(dicom_result.accession)
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('ACCESSION', accession, source='dicom_metadata')
+                        text_entities.append({
+                            'type': 'ACCESSION',
+                            'text': accession,
+                            'start': 0,
+                            'end': len(accession),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    if dicom_result.institution:
+                        institution = str(dicom_result.institution)
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('INSTITUTION', institution, source='dicom_metadata')
+                        text_entities.append({
+                            'type': 'INSTITUTION',
+                            'text': institution,
+                            'start': 0,
+                            'end': len(institution),
+                            'confidence': confidence,
+                            'source': 'dicom_metadata'
+                        })
+                    if dicom_result.study_date:
+                        study_date = str(dicom_result.study_date)
+                        confidence = app.crossmodal_svc._calculate_entity_confidence('STUDY_DATE', study_date, source='dicom_metadata')
+                        text_entities.append({
+                            'type': 'STUDY_DATE',
+                            'text': study_date,
+                            'start': 0,
+                            'end': len(study_date),
+                            'confidence': confidence,
                             'source': 'dicom_metadata'
                         })
                     
@@ -633,7 +696,7 @@ def create_app(config=None):
                         'csv_data': csv_patient['row_data'],
                         'dicom_metadata': dicom_meta,
                         'match_type': 'patient_id_exact_match',
-                        'confidence': 1.0,
+                        'confidence': app.crossmodal_svc._calculate_match_confidence('patient_id_exact_match', csv_pid, csv_pid),
                         'risk_level': 'critical'
                     })
                 else:
