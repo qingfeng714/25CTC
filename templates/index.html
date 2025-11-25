@@ -7,6 +7,23 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>医疗隐私保护系统 - 跨模态检测</title>
+    
+    <!-- crypto.randomUUID polyfill - MUST be loaded first, before any other scripts -->
+    <script>
+        (function() {
+            'use strict';
+            if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
+                crypto.randomUUID = function() {
+                    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                        const r = Math.random() * 16 | 0;
+                        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                        return v.toString(16);
+                    });
+                };
+            }
+        })();
+    </script>
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20251022">
     <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.3/dist/dicomParser.min.js"></script>
     
@@ -1744,9 +1761,24 @@
                     } else if (mapping.match_type === 'patient_id_mismatch') {
                         icon = '❌';
                         title = 'Patient ID 不匹配';
-                    } else if (mapping.match_type === 'name_match') {
+                    } else if (mapping.match_type === 'study_id_match') {
+                        icon = '🔍';
+                        title = 'Study ID 匹配';
+                    } else if (mapping.match_type === 'study_instance_uid_match') {
+                        icon = '🆔';
+                        title = 'Study Instance UID 匹配';
+                    } else if (mapping.match_type === 'accession_match') {
+                        icon = '📋';
+                        title = 'Accession 匹配';
+                    } else if (mapping.match_type === 'study_date_match') {
+                        icon = '📅';
+                        title = '检查日期匹配';
+                    } else if (mapping.match_type === 'institution_match') {
+                        icon = '🏥';
+                        title = '机构匹配';
+                    } else if (mapping.match_type === 'name_match' || mapping.match_type === 'name_match_fuzzy') {
                         icon = '👤';
-                        title = '姓名匹配';
+                        title = mapping.match_type === 'name_match' ? '姓名匹配' : '姓名模糊匹配';
                     } else if (mapping.match_type === 'age_match') {
                         icon = '📅';
                         title = '年龄匹配';
@@ -1755,10 +1787,35 @@
                         title = '性别匹配';
                     }
                     
+                    // 获取值：优先使用csv_value，如果没有则使用text_value
+                    // 处理null/undefined值
+                    const csvValue = (mapping.csv_value !== null && mapping.csv_value !== undefined && mapping.csv_value !== 'null') ? mapping.csv_value : null;
+                    const textValue = (mapping.text_value !== null && mapping.text_value !== undefined && mapping.text_value !== 'null') ? mapping.text_value : null;
+                    const entityValue = csvValue || textValue || 'N/A';
+                    
+                    // 获取文本来源
+                    const textSource = mapping.text_source || 'Unknown';
+                    
+                    // 构建位置信息
+                    let locationInfo = '';
+                    if (mapping.text_source === 'CSV' && mapping.csv_row !== null && mapping.csv_row !== undefined) {
+                        // CSV实体：显示行号和列名
+                        locationInfo = `<div><strong>CSV位置:</strong> 第 <code>${mapping.csv_row}</code> 行${mapping.csv_column ? `，<code>${mapping.csv_column}</code> 列` : ''}</div>`;
+                    } else if (mapping.text_source === 'TXT' || textValue) {
+                        // TXT实体：显示来源文件
+                        locationInfo = `<div><strong>文本来源:</strong> <code>${textSource}</code> 文件</div>`;
+                    } else if (mapping.text_source === 'Unknown' || (!csvValue && !textValue)) {
+                        // 如果来源未知或值无效，不显示位置信息
+                        locationInfo = '';
+                    } else {
+                        // 其他情况
+                        locationInfo = `<div><strong>来源:</strong> <code>${textSource}</code></div>`;
+                    }
+                    
                     mappingDiv.innerHTML = `
                         <div>${icon} ${title}</div>
-                        <div><strong>CSV位置:</strong> 第 <code>${mapping.csv_row}</code> 行，<code>${mapping.csv_column}</code> 列</div>
-                        <div><strong>CSV值:</strong> <code>${mapping.csv_value}</code></div>
+                        ${locationInfo}
+                        <div><strong>${textSource === 'CSV' ? 'CSV值' : '文本值'}:</strong> <code>${entityValue}</code></div>
                         ${mapping.extracted_patient_id ? `<div><strong>提取的Patient ID:</strong> <code>${mapping.extracted_patient_id}</code></div>` : ''}
                         <div><strong>DICOM字段:</strong> <code>${mapping.dicom_field}</code> = <code>${mapping.dicom_value}</code></div>
                         <div>

@@ -18,6 +18,13 @@ class NERService:
             # 移除过于宽泛的PATIENT_ID和ACCESSION模式，改为在CSV处理时根据列名判断
             "INSTITUTION": r"([\u4e00-\u9fa5]+(医院|中心|诊所|卫生院))",  # 机构名称
             "SEX": r"\b(Male|Female|M|F|男|女|男性|女性)\b",  # 性别
+            # STUDY_ID模式：匹配检查ID、Study ID等关键词后的数字或字母数字组合
+            # 支持多种格式：
+            # - "检查ID: 50414267"
+            # - "Study ID: 50414267"
+            # - "检查编号: 50414267"
+            # - "study_id: 50414267"
+            "STUDY_ID": r"(?:检查ID|检查号|检查编号|Study\s*ID|StudyID|study\s*id|study_id|STUDY\s*ID|STUDYID|Study\s*Id)[:：\s]*([A-Za-z0-9]{4,20})",  # 检查ID
         }
         
         # 英文模式（用于处理英文医疗文本）
@@ -38,16 +45,34 @@ class NERService:
         entities = []
         patterns = self.english_patterns if use_english else self.patterns
         
+        # 调试：检查STUDY_ID模式
+        if 'STUDY_ID' in patterns and not use_english:
+            study_id_matches = list(re.finditer(patterns['STUDY_ID'], text, re.IGNORECASE))
+            if study_id_matches:
+                print(f"[DEBUG] NER检测到 {len(study_id_matches)} 个STUDY_ID匹配: {[m.groups() for m in study_id_matches]}")
+            elif '检查' in text or 'study' in text.lower() or 'Study' in text:
+                print(f"[DEBUG] 文本中包含'检查'或'study'关键词，但未匹配到STUDY_ID。文本片段: {text[:200]}")
+        
         for entity_type, pattern in patterns.items():
-            for match in re.finditer(pattern, text):
+            for match in re.finditer(pattern, text, re.IGNORECASE):
                 if use_english:
                     # 英文模式直接匹配整个文本
                     start, end = match.start(), match.end()
                     text_content = match.group()
                 else:
                     # 中文模式使用第一个分组
-                    start, end = match.start(1), match.end(1)
-                    text_content = match.group(1)
+                    # 对于STUDY_ID，使用第一个分组（简化后的正则只有一个分组）
+                    if entity_type == "STUDY_ID":
+                        # STUDY_ID正则只有一个分组，直接使用
+                        if match.lastindex and match.lastindex >= 1:
+                            text_content = match.group(1)
+                            start, end = match.start(1), match.end(1)
+                        else:
+                            continue  # 如果没有分组，跳过
+                    else:
+                        # 其他类型使用第一个分组
+                        start, end = match.start(1), match.end(1)
+                        text_content = match.group(1)
                 
                 # 特殊处理AGE类型：验证年龄值是否合理（0-150岁）
                 if entity_type == "AGE":
@@ -128,6 +153,7 @@ class NERService:
             "PATIENT_ID": 0.98,
             "ACCESSION": 0.96,
             "INSTITUTION": 0.88,
+            "STUDY_ID": 0.95,  # 检查ID置信度
         }
         return base_conf.get(entity_type, 0.8) * min(1.0, 0.9 + 0.1 * len(text) / 10)  # 长度越长置信度越高
     
