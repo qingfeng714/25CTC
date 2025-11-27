@@ -8,7 +8,8 @@ class NERService:
     def __init__(self):
         """初始化正则表达式规则（匹配中文医疗文本中的敏感实体）"""
         self.patterns = {
-            "NAME": r"([\u4e00-\u9fa5]{2,4})",  # 中文姓名（2-4个汉字）
+            # 姓名：支持中文姓名或 "Name: XXX" 形式的英文/拼音姓名
+            "NAME": r"(?:Name[:：\s]*([A-Za-z][A-Za-z0-9_\-\. ]{1,40}))|([\u4e00-\u9fa5]{2,4})",
             "ID": r"(\d{17}[\dXx]|\d{15})",  # 身份证号（15或18位）
             "PHONE": r"(1[3-9]\d{9})",  # 手机号（11位，以1开头）
             # AGE模式：只匹配明确的年龄表达，避免误匹配其他数字
@@ -16,8 +17,12 @@ class NERService:
             "DATE": r"(\d{4}[年\-/]\d{1,2}[月\-/]\d{1,2}日?)",  # 日期
             "ADDRESS": r"([\u4e00-\u9fa5]+(省|市|区|县|街道|路|号|村|镇))",  # 地址
             # 移除过于宽泛的PATIENT_ID和ACCESSION模式，改为在CSV处理时根据列名判断
-            "INSTITUTION": r"([\u4e00-\u9fa5]+(医院|中心|诊所|卫生院))",  # 机构名称
+            "INSTITUTION": r"([\u4e00-\u9fa5]+(医院|中心|诊所|卫生院))|(?:Hospital|Center|Clinic|Department)[:：\s]*([A-Za-z0-9 _\\-]{2,80})",  # 机构名称（中英文）
             "SEX": r"\b(Male|Female|M|F|男|女|男性|女性)\b",  # 性别
+            # Patient ID / Medical Record Number / Accession
+            "PATIENT_ID": r"(?:Patient\s*(?:ID|Identifier|Number)|患者ID|患者编号|patient_id|PATIENT_ID)[:：\s]*([A-Za-z0-9_\-]{4,40})",
+            "MEDICAL_RECORD": r"(?:Medical\s*Record\s*(?:Number|No\.?)|MRN)[:：\s]*([A-Za-z0-9_\-]{4,40})",
+            "ACCESSION": r"(?:Accession\s*(?:Number|No\.?)|ACC(?:ession)?)[：:\s]*([A-Za-z0-9_\-]{4,40})",
             # STUDY_ID模式：匹配检查ID、Study ID等关键词后的数字或字母数字组合
             # 支持多种格式：
             # - "检查ID: 50414267"
@@ -60,19 +65,23 @@ class NERService:
                     start, end = match.start(), match.end()
                     text_content = match.group()
                 else:
-                    # 中文模式使用第一个分组
-                    # 对于STUDY_ID，使用第一个分组（简化后的正则只有一个分组）
-                    if entity_type == "STUDY_ID":
-                        # STUDY_ID正则只有一个分组，直接使用
-                        if match.lastindex and match.lastindex >= 1:
+                    selected = False
+                    if match.lastindex:
+                        for group_idx in range(1, match.lastindex + 1):
+                            group_val = match.group(group_idx)
+                            if group_val:
+                                text_content = group_val
+                                start, end = match.start(group_idx), match.end(group_idx)
+                                selected = True
+                                break
+                    if not selected:
+                        if entity_type == "STUDY_ID" and match.lastindex and match.lastindex >= 1:
                             text_content = match.group(1)
                             start, end = match.start(1), match.end(1)
+                            selected = True
                         else:
-                            continue  # 如果没有分组，跳过
-                    else:
-                        # 其他类型使用第一个分组
-                        start, end = match.start(1), match.end(1)
-                        text_content = match.group(1)
+                            text_content = match.group()
+                            start, end = match.start(), match.end()
                 
                 # 特殊处理AGE类型：验证年龄值是否合理（0-150岁）
                 if entity_type == "AGE":
@@ -152,6 +161,7 @@ class NERService:
             "ADDRESS": 0.85,
             "PATIENT_ID": 0.98,
             "ACCESSION": 0.96,
+             "MEDICAL_RECORD": 0.97,
             "INSTITUTION": 0.88,
             "STUDY_ID": 0.95,  # 检查ID置信度
         }

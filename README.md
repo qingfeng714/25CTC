@@ -192,7 +192,7 @@ python test_full_pipeline.py
 
 ## 📝 更新记录
 
-### 最新改进 (2025-01)
+### 最新改进 (2025-11)
 
 - ✅ 实现单文件和批量处理两种工作流
 - ✅ 支持CSV、TXT、DICOM文件的联合检测
@@ -205,12 +205,6 @@ python test_full_pipeline.py
 
 本项目为2025密码技术竞赛参赛作品
 
-## 🙏 致谢
-
-- PyDICOM: DICOM文件处理
-- Ascon: 轻量级加密算法
-- Flask: Web框架
-- SPHINCS+: 后量子签名
 
 ---
 

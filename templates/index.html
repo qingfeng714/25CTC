@@ -74,7 +74,7 @@
         }
         /* 大屏视觉上居中但不超过 max-width */
         @media (min-width: 1200px) {
-            .container { max-width: 1200px; }
+            .container { max-width: 1500px; }
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.3/dist/dicomParser.min.js"></script>
@@ -165,38 +165,82 @@
 
         <!-- 检测结果 -->
         <div id="results" class="results-section" style="display:none;">
-        <h2>检测结果</h2>
+            <h2>检测结果</h2>
             
-            <div class="results-tabs">
-                <button class="tab-btn active" onclick="showTab('textResults')">文本实体</button>
-                <button class="tab-btn" onclick="showTab('imageResults')">影像区域</button>
-                <button class="tab-btn" onclick="showTab('crossModalResults')">跨模态关联</button>
-                <button class="tab-btn" onclick="showTab('riskAssessment')">风险评估</button>
+            <!-- 双栏布局：敏感实体和DICOM框 -->
+            <div class="results-two-column">
+                <!-- 左栏：原文和高亮实体 -->
+                <div class="results-left-column">
+                    <div class="text-analysis-section expandable-card" id="textAnalysisSection">
+                        <div class="section-header">
+                            <h3>敏感实体与高亮文本</h3>
+                            <button type="button" class="expand-toggle" data-target="textAnalysisSection">展开</button>
+                        </div>
+                        
+                        <!-- 原文显示区域 -->
+                        <div class="original-text-section">
+                            <h4>原文 (已高亮)</h4>
+                            <div id="originalTextDisplay" class="text-display-highlight">
+                                正在加载文本...
+                            </div>
+                        </div>
+                        
+                        <!-- 实体列表 -->
+                        <div class="entities-list-section">
+                            <h4>实体列表</h4>
+                            <div id="entitiesList"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 右栏：DICOM图像和ROI信息 -->
+                <div class="results-right-column">
+                    <div class="dicom-image-section expandable-card" id="dicomSection">
+                        <div class="section-header">
+                            <h3>DICOM 影像与 ROI</h3>
+                            <button type="button" class="expand-toggle" data-target="dicomSection">展开</button>
+                        </div>
+                        
+                        <!-- DICOM图像显示 -->
+                        <div id="dicomImageContainer" class="dicom-viewer-container">
+                            <canvas id="dicomCanvas" class="dicom-canvas"></canvas>
+                            <div id="roiOverlay" class="roi-overlay-container"></div>
+                        </div>
+                        
+                        <!-- ROI信息 -->
+                        <div class="roi-info-section">
+                            <h4>ROI 信息</h4>
+                            <div id="roiDisplay" class="roi-info-content"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
-
-            <div id="textResults" class="tab-content active">
-                <h3>检测到的敏感实体</h3>
-                <div id="entitiesList"></div>
-            </div>
-
-            <div id="imageResults" class="tab-content">
-                <h3>影像ROI区域</h3>
-                <div id="roiDisplay"></div>
-            </div>
-
-            <div id="crossModalResults" class="tab-content">
-                <h3>跨模态关联检测</h3>
-                <div id="crossModalList"></div>
-            </div>
-
-            <div id="riskAssessment" class="tab-content">
-                <h3>风险评估</h3>
-                <div id="riskMetrics"></div>
+            
+            <!-- 跨模态关联和风险评估（全宽，放在双栏下面） -->
+            <div class="results-full-width">
+                <!-- 跨模态关联 -->
+                <div class="cross-modal-section expandable-card" id="crossModalSection">
+                    <div class="section-header">
+                        <h4>跨模态关联</h4>
+                        <button type="button" class="expand-toggle" data-target="crossModalSection">展开</button>
+                    </div>
+                    <div id="crossModalList" class="cross-modal-content"></div>
+                </div>
+                
+                <!-- 风险评估 -->
+                <div class="risk-assessment-section expandable-card" id="riskSection">
+                    <div class="section-header">
+                        <h4>风险评估</h4>
+                        <button type="button" class="expand-toggle" data-target="riskSection">展开</button>
+                    </div>
+                    <div id="riskMetrics" class="risk-assessment-content"></div>
+                </div>
             </div>
 
             <div class="action-buttons">
-                <button id="protectBtn" class="btn btn-success">执行保护</button>
-                <button id="downloadBtn" class="btn btn-info">下载结果</button>
+                <button id="protectBtn" class="btn btn-success">执行数据保护</button>
+                <button id="downloadBtn" class="btn btn-info">下载检测结果</button>
+                <button onclick="location.reload()" class="btn btn-secondary">返回上传</button>
             </div>
         </div>
 
@@ -254,6 +298,7 @@
                 <div id="verificationResults" style="margin-top:20px;"></div>
             </div>
         </div>
+        <div id="expandOverlay" class="expand-overlay"></div>
     </div>
 
     <script>
@@ -281,6 +326,44 @@
             downloadResults();
         };
 
+        // 放大/缩小可展开板块
+        const expandOverlay = document.getElementById('expandOverlay');
+
+        function closeExpandedSections() {
+            document.querySelectorAll('.expandable-card.expanded').forEach(card => card.classList.remove('expanded'));
+            document.querySelectorAll('.expand-toggle').forEach(btn => btn.textContent = '展开');
+            document.querySelectorAll('.roi-info-content').forEach(el => el.classList.remove('show-all'));
+            expandOverlay.style.display = 'none';
+            document.body.classList.remove('no-scroll');
+        }
+
+        function toggleExpandableCard(sectionId, button) {
+            const target = document.getElementById(sectionId);
+            if (!target) return;
+            const alreadyExpanded = target.classList.contains('expanded');
+            closeExpandedSections();
+            if (!alreadyExpanded) {
+                target.classList.add('expanded');
+                button.textContent = '还原';
+                expandOverlay.style.display = 'block';
+                document.body.classList.add('no-scroll');
+
+                const targetHeight = target.id === 'dicomSection'
+                    ? window.innerHeight * 0.95
+                    : Math.min(window.innerHeight * 0.85, window.innerHeight * 0.9);
+                target.style.maxHeight = `${Math.max(targetHeight, 320)}px`;
+                const modalContent = target.querySelector('.roi-info-content');
+                if (modalContent) {
+                    modalContent.classList.add('show-all');
+                }
+            }
+        }
+
+        document.querySelectorAll('.expand-toggle').forEach(btn => {
+            btn.addEventListener('click', () => toggleExpandableCard(btn.dataset.target, btn));
+        });
+        expandOverlay.addEventListener('click', closeExpandedSections);
+
         // 处理单文件上传（CSV、TXT、DICOM三个独立文件）
         async function handleSingleUpload() {
             console.log('[DEBUG] 开始单文件上传处理');
@@ -300,6 +383,9 @@
                 alert('请至少上传一个文件（CSV、TXT或DICOM）');
                 return;
             }
+            
+            // 重置状态
+            currentTxtContent = null;
             
             showProgress();
             updateProgress(0, '开始处理...');
@@ -342,6 +428,18 @@
                 if (txtFile) {
                     console.log('[DEBUG] 开始上传TXT文件:', txtFile.name);
                     updateProgress(30, '上传TXT文件...');
+                    
+                    // 读取TXT文件内容用于前端显示
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        currentTxtContent = e.target.result;
+                    };
+                    reader.onerror = function() {
+                        console.error('[ERROR] TXT文件读取失败');
+                        currentTxtContent = null;
+                    };
+                    reader.readAsText(txtFile, 'UTF-8');
+                    
                     const txtFormData = new FormData();
                     txtFormData.append('txt', txtFile);
                     
@@ -1004,7 +1102,9 @@
                             entityDiv.innerHTML = `
                                 <span class="entity-type" style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap;">${entity.type}</span>
                                 <span class="entity-text" style="flex: 1; color: #333; font-weight: 500; word-break: break-word;">${escapeHtml(String(entity.text || ''))}</span>
-                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px; white-space: nowrap;">置信度: ${((entity.confidence || 0.9) * 100).toFixed(1)}%</span>
+                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px; white-space: nowrap;">
+                                    ${typeof entity.confidence === 'number' && !isNaN(entity.confidence) ? '置信度: ' + (entity.confidence * 100).toFixed(1) + '%' : '置信度: --'}
+                                </span>
                                 ${entity.source === 'dicom_roi' ? '<span style="color: #FF5722; font-size: 12px;">[ROI]</span>' : ''}
                             `;
                             dicomFileDiv.appendChild(entityDiv);
@@ -1094,7 +1194,9 @@
                             entityDiv.innerHTML = `
                                 <span class="entity-type" style="background: linear-gradient(135deg, #FF5722 0%, #E91E63 100%); color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap;">${entity.type}</span>
                                 <span class="entity-text" style="flex: 1; color: #333; font-weight: 500; word-break: break-word;">${escapeHtml(String(entity.text || ''))}</span>
-                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px; white-space: nowrap;">置信度: ${((entity.confidence || 0.9) * 100).toFixed(1)}%</span>
+                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px; white-space: nowrap;">
+                                    ${typeof entity.confidence === 'number' && !isNaN(entity.confidence) ? '置信度: ' + (entity.confidence * 100).toFixed(1) + '%' : '置信度: --'}
+                                </span>
                                 <span style="color: #FF5722; font-size: 12px;">[ROI]</span>
                             `;
                             dicomMetadataDiv.appendChild(entityDiv);
@@ -1442,17 +1544,118 @@
             return div.innerHTML;
         }
 
+        // 高亮显示PHI实体
+        function highlightPHIEntities(text, entities) {
+            if (!text || !entities || entities.length === 0) return escapeHtml(text || '');
+            
+            // 后端在计算实体位置时使用的是 \n 换行，这里保持一致，避免因 \r\n 导致的偏移
+            const normalizedText = (text || '').replace(/\r\n/g, '\n');
+            
+            const processedEntities = entities.map(entity => {
+                const rawText = entity.text !== undefined ? String(entity.text) : '';
+                const trimmed = rawText.trim();
+                if (!trimmed) return null;
+                
+                const category = (entity.type || 'UNKNOWN').toLowerCase();
+                const confidence = ((entity.confidence || 0.9) * 100).toFixed(1);
+                
+                let highlightClass = 'phi-highlight';
+                if (category.includes('name') || category === 'patient_name') highlightClass = 'phi-name';
+                else if (category.includes('age') || category === 'patient_age') highlightClass = 'phi-age';
+                else if (category.includes('date') || category === 'study_date') highlightClass = 'phi-date';
+                else if (
+                    category.includes('id') ||
+                    category.includes('patient_id') ||
+                    category.includes('study_id') ||
+                    category.includes('accession') ||
+                    category.includes('record')
+                ) {
+                    highlightClass = 'phi-id';
+                }
+                else if (category.includes('address')) highlightClass = 'phi-address';
+                else if (category.includes('phone')) highlightClass = 'phi-phone';
+                else if (category.includes('sex') || category.includes('gender')) highlightClass = 'phi-sex';
+                
+                const hasStart = typeof entity.start === 'number' || typeof entity.start_pos === 'number';
+                const hasEnd = typeof entity.end === 'number' || typeof entity.end_pos === 'number';
+                if (!hasStart || !hasEnd) return null;  // 没有位置信息的实体不高亮
+                
+                let start = (typeof entity.start === 'number')
+                    ? entity.start
+                    : entity.start_pos;
+                let end = (typeof entity.end === 'number')
+                    ? entity.end
+                    : entity.end_pos;
+                
+                if (typeof start !== 'number' || typeof end !== 'number') return null;
+                if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+                
+                // 进一步收紧范围：若原始片段包含trimmed文本，优先以trimmed定位，避免高亮冗余标签
+                const spanText = normalizedText.slice(start, end);
+                if (trimmed && spanText) {
+                    const offset = spanText.indexOf(trimmed);
+                    if (offset >= 0) {
+                        start = start + offset;
+                        end = start + trimmed.length;
+                    } else {
+                        // 去除首尾空白
+                        const leadingSpaces = spanText.match(/^\s+/);
+                        if (leadingSpaces) start += leadingSpaces[0].length;
+                        const trailingSpaces = spanText.match(/\s+$/);
+                        if (trailingSpaces) end -= trailingSpaces[0].length;
+                        if (end <= start) return null;
+                    }
+                }
+                
+                return {
+                    start,
+                    end,
+                    highlightClass,
+                    confidence,
+                    type: entity.type || 'UNKNOWN',
+                    entityId: entity.entity_id || ''
+                };
+            }).filter(Boolean).sort((a, b) => a.start - b.start);
+            
+            if (processedEntities.length === 0) return escapeHtml(text);
+            
+            let cursor = 0;
+            let result = '';
+            processedEntities.forEach(entity => {
+                if (entity.start < cursor) return; // 避免重叠导致错误
+                result += escapeHtml(normalizedText.slice(cursor, entity.start));
+                const segment = normalizedText.slice(entity.start, entity.end);
+                result += `<span class="${entity.highlightClass}" title="${entity.type} (置信度: ${entity.confidence}%)" data-entity-id="${entity.entityId}">${escapeHtml(segment)}</span>`;
+                cursor = entity.end;
+            });
+            result += escapeHtml(normalizedText.slice(cursor));
+            return result;
+        }
+
                 // 显示检测结果
         function displayResults(result) {
             console.log('检测结果:', result); // 添加调试信息
             document.getElementById('results').style.display = 'block';
             
-                // 显示文本实体（只显示CSV和TXT文件中的敏感信息）
+            // ========== 左栏：原文和高亮实体 ==========
+            
+            // 1. 显示原文（高亮实体）
+            const originalTextDisplay = document.getElementById('originalTextDisplay');
+            const allEntities = result.entities || result.text_entities || [];
+            const txtEntities = allEntities.filter(entity => entity.source === 'txt_file');
+            
+            if (currentTxtContent && txtEntities.length > 0) {
+                originalTextDisplay.innerHTML = highlightPHIEntities(currentTxtContent, txtEntities);
+            } else if (currentTxtContent) {
+                originalTextDisplay.innerHTML = escapeHtml(currentTxtContent);
+            } else {
+                originalTextDisplay.innerHTML = '<p style="color: #6c757d; text-align: center;">未上传TXT文件或文件内容为空</p>';
+            }
+            
+            // 2. 显示实体列表
             const entitiesList = document.getElementById('entitiesList');
             entitiesList.innerHTML = '';
             
-            // 获取所有实体（在函数开始处声明一次，后续复用）
-            const allEntities = result.entities || result.text_entities || [];
             // 过滤：只保留CSV和TXT来源的实体
             const textEntities = allEntities.filter(entity => {
                 const source = entity.source || 'unknown';
@@ -1482,16 +1685,18 @@
                     if (group.entities.length === 0) return;
                     
                     const sourceDiv = document.createElement('div');
-                    sourceDiv.style.marginBottom = '30px';
+                    sourceDiv.className = 'source-group';
+                    sourceDiv.style.marginBottom = '15px';
                     sourceDiv.style.border = `2px solid ${group.color}`;
-                    sourceDiv.style.borderRadius = '8px';
-                    sourceDiv.style.padding = '15px';
+                    sourceDiv.style.borderRadius = '6px';
+                    sourceDiv.style.padding = '12px';
                     sourceDiv.style.background = `${group.color}10`;
                     
-                    const sourceHeader = document.createElement('h4');
+                    const sourceHeader = document.createElement('h5');
                     sourceHeader.style.color = group.color;
-                    sourceHeader.style.marginBottom = '15px';
-                    sourceHeader.style.fontSize = '18px';
+                    sourceHeader.style.marginBottom = '10px';
+                    sourceHeader.style.marginTop = '0';
+                    sourceHeader.style.fontSize = '15px';
                     sourceHeader.style.fontWeight = '600';
                     sourceHeader.innerHTML = `${group.icon} ${group.name} <span style="color: #6c757d; font-weight: 400;">(${group.entities.length} 个实体)</span>`;
                     sourceDiv.appendChild(sourceHeader);
@@ -1543,21 +1748,45 @@
                             }
                         });
                         
-                        uniqueEntities.forEach(entity => {
-                        const entityDiv = document.createElement('div');
-                        entityDiv.className = 'entity-item';
-                            entityDiv.style.marginLeft = '20px';
-                            entityDiv.style.marginBottom = '8px';
+                        // 限制每个类型最多显示5个实体，其余折叠
+                        const maxDisplay = 5;
+                        const displayEntities = uniqueEntities.slice(0, maxDisplay);
+                        const hiddenCount = uniqueEntities.length - maxDisplay;
+                        
+                        displayEntities.forEach(entity => {
+                            const entityDiv = document.createElement('div');
+                            entityDiv.className = 'entity-item';
+                            entityDiv.style.marginLeft = '10px';
+                            entityDiv.style.marginBottom = '4px';
                             entityDiv.style.display = 'flex';
                             entityDiv.style.alignItems = 'center';
-                            entityDiv.style.gap = '10px';
-                        entityDiv.innerHTML = `
-                                <span class="entity-type" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600;">${entity.type}</span>
-                                <span class="entity-text" style="flex: 1; color: #333; font-weight: 500;">${escapeHtml(String(entity.text || ''))}</span>
-                                <span class="entity-confidence" style="color: #6c757d; font-size: 13px;">置信度: ${((entity.confidence || 0.9) * 100).toFixed(1)}%</span>
+                            entityDiv.style.gap = '8px';
+                            entityDiv.style.padding = '6px 8px';
+                            entityDiv.style.background = '#ffffff';
+                            entityDiv.style.borderRadius = '4px';
+                            entityDiv.style.border = '1px solid #e0e0e0';
+                            entityDiv.innerHTML = `
+                                <span class="entity-type" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; white-space: nowrap;">${entity.type}</span>
+                                <span class="entity-text" style="flex: 1; color: #333; font-weight: 500; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(String(entity.text || ''))}</span>
+                                <span class="entity-confidence" style="color: #6c757d; font-size: 11px; white-space: nowrap;">
+                                    ${typeof entity.confidence === 'number' && !isNaN(entity.confidence) ? (entity.confidence * 100).toFixed(1) + '%' : '--'}
+                                </span>
                             `;
                             sourceDiv.appendChild(entityDiv);
                         });
+                        
+                        // 如果有隐藏的实体，显示提示
+                        if (hiddenCount > 0) {
+                            const moreDiv = document.createElement('div');
+                            moreDiv.style.marginLeft = '10px';
+                            moreDiv.style.marginTop = '4px';
+                            moreDiv.style.padding = '6px 8px';
+                            moreDiv.style.color = '#6c757d';
+                            moreDiv.style.fontSize = '12px';
+                            moreDiv.style.fontStyle = 'italic';
+                            moreDiv.innerHTML = `... 还有 ${hiddenCount} 个实体未显示（滚动查看）`;
+                            sourceDiv.appendChild(moreDiv);
+                        }
                     });
                     
                     entitiesList.appendChild(sourceDiv);
@@ -1565,15 +1794,16 @@
                 
                 // 显示统计信息
                 const statsDiv = document.createElement('div');
-                statsDiv.style.marginTop = '20px';
-                statsDiv.style.padding = '15px';
+                statsDiv.style.marginTop = '15px';
+                statsDiv.style.padding = '12px';
                 statsDiv.style.background = '#f8f9fa';
-                statsDiv.style.borderRadius = '8px';
+                statsDiv.style.borderRadius = '6px';
+                statsDiv.style.border = '1px solid #e0e0e0';
                 statsDiv.innerHTML = `
-                    <h5 style="margin-bottom: 10px;">📊 统计信息</h5>
-                    <p><strong>CSV实体:</strong> ${sourceGroups['csv_metadata'].entities.length} 个</p>
-                    <p><strong>TXT实体:</strong> ${sourceGroups['txt_file'].entities.length} 个</p>
-                    <p><strong>总计:</strong> ${textEntities.length} 个实体</p>
+                    <h5 style="margin: 0 0 8px 0; font-size: 14px; color: #495057;">📊 统计信息</h5>
+                    <p style="margin: 4px 0; font-size: 13px;"><strong>CSV实体:</strong> ${sourceGroups['csv_metadata'].entities.length} 个</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><strong>TXT实体:</strong> ${sourceGroups['txt_file'].entities.length} 个</p>
+                    <p style="margin: 4px 0; font-size: 13px;"><strong>总计:</strong> ${textEntities.length} 个实体</p>
                 `;
                 entitiesList.appendChild(statsDiv);
             } else {
@@ -1581,7 +1811,25 @@
                 entitiesList.innerHTML = '<p style="text-align: center; color: #6c757d; padding: 30px;">未检测到敏感实体（CSV和TXT文件中）</p>';
             }
             
-            // 显示影像ROI区域和DICOM敏感信息
+            // ========== 右栏：DICOM图像、ROI信息、跨模态关联、风险评估 ==========
+            
+            // 1. 显示DICOM图像（如果有DICOM文件）
+            const dicomCanvas = document.getElementById('dicomCanvas');
+            if (dicomCanvas && currentDicomPath) {
+                // 这里可以添加DICOM图像加载逻辑
+                // 暂时显示占位符
+                const ctx = dicomCanvas.getContext('2d');
+                dicomCanvas.width = 400;
+                dicomCanvas.height = 400;
+                ctx.fillStyle = '#2c3e50';
+                ctx.fillRect(0, 0, dicomCanvas.width, dicomCanvas.height);
+                ctx.fillStyle = '#34495e';
+                ctx.font = '16px Arial';
+                ctx.fillText('DICOM影像预览', 20, 30);
+                ctx.fillText('(图像加载中...)', 20, 60);
+            }
+            
+            // 2. 显示ROI信息
             const roiDisplay = document.getElementById('roiDisplay');
             roiDisplay.innerHTML = '';
             
@@ -1603,16 +1851,17 @@
                 // 显示DICOM元数据敏感信息
                 if (metadataEntities.length > 0) {
                     const dicomMetadataDiv = document.createElement('div');
-                    dicomMetadataDiv.style.marginBottom = '30px';
+                    dicomMetadataDiv.style.marginBottom = '15px';
                     dicomMetadataDiv.style.border = '2px solid #FF9800';
-                    dicomMetadataDiv.style.borderRadius = '8px';
-                    dicomMetadataDiv.style.padding = '15px';
+                    dicomMetadataDiv.style.borderRadius = '6px';
+                    dicomMetadataDiv.style.padding = '12px';
                     dicomMetadataDiv.style.background = '#FFF3E0';
                     
-                    const dicomHeader = document.createElement('h4');
+                    const dicomHeader = document.createElement('h5');
                     dicomHeader.style.color = '#FF9800';
-                    dicomHeader.style.marginBottom = '15px';
-                    dicomHeader.style.fontSize = '18px';
+                    dicomHeader.style.marginBottom = '10px';
+                    dicomHeader.style.marginTop = '0';
+                    dicomHeader.style.fontSize = '14px';
                     dicomHeader.style.fontWeight = '600';
                     dicomHeader.innerHTML = `🏥 DICOM元数据敏感信息 <span style="color: #6c757d; font-weight: 400;">(${metadataEntities.length} 个实体)</span>`;
                     dicomMetadataDiv.appendChild(dicomHeader);
@@ -1686,16 +1935,17 @@
             // 2. 显示ROI区域信息
             if (imageRegions.roi_mask) {
                 const roiInfoDiv = document.createElement('div');
-                roiInfoDiv.style.marginBottom = '20px';
+                roiInfoDiv.style.marginBottom = '15px';
                 roiInfoDiv.style.border = '2px solid #2196F3';
-                roiInfoDiv.style.borderRadius = '8px';
-                roiInfoDiv.style.padding = '15px';
+                roiInfoDiv.style.borderRadius = '6px';
+                roiInfoDiv.style.padding = '12px';
                 roiInfoDiv.style.background = '#E3F2FD';
                 
-                const roiHeader = document.createElement('h4');
+                const roiHeader = document.createElement('h5');
                 roiHeader.style.color = '#2196F3';
-                roiHeader.style.marginBottom = '15px';
-                roiHeader.style.fontSize = '18px';
+                roiHeader.style.marginBottom = '10px';
+                roiHeader.style.marginTop = '0';
+                roiHeader.style.fontSize = '14px';
                 roiHeader.style.fontWeight = '600';
                 roiHeader.innerHTML = '🖼️ ROI区域信息';
                 roiInfoDiv.appendChild(roiHeader);
@@ -2229,6 +2479,7 @@
         let currentDicomPath = null;  // 保存DICOM文件路径
         let currentCsvPath = null;    // 保存CSV文件路径
         let currentTxtPath = null;    // 保存TXT文件路径
+        let currentTxtContent = null; // 保存TXT文件内容
         
         // 辅助函数：从检测结果中提取patient_id
         function extractPatientId(result) {
