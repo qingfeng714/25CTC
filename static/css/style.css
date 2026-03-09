@@ -490,17 +490,57 @@ body.no-scroll {
     background: #000;
     border-radius: 6px;
     overflow: hidden;
-    height: 260px; /* 略增高度，避免默认被挤压 */
-    margin-bottom: 15px;
+    margin-bottom: 12px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    flex: 0 0 auto; /* 不自动伸缩 */
+    flex: 0 0 auto;
     width: 100%;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dicom-main-preview {
+    position: relative;
+    min-height: 200px;
+    max-height: 45vh;
 }
 
 .dicom-canvas {
     width: 100%;
     height: 100%;
+    position: relative;
+    background: #000;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 16px;
+}
+
+.dicom-canvas .dicom-placeholder {
+    pointer-events: none;
+    line-height: 1.6;
+    padding: 0 12px;
+    color: #dde3ed;
+    font-weight: 500;
+}
+
+.dicom-canvas.dicom-loading::after {
+    content: '正在加载DICOM图像...';
+    position: absolute;
+    bottom: 12px;
+    left: 16px;
+    font-size: 13px;
+    color: #f1f1f1;
+    opacity: 0.8;
+}
+
+.dicom-canvas img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     display: block;
 }
 
@@ -547,6 +587,154 @@ body.no-scroll {
     font-size: 1rem;
     color: #495057;
     font-weight: 600;
+}
+
+.batch-dicom-gallery {
+    margin-top: 20px;
+    padding: 15px;
+    background: #0f172a;
+    border-radius: 6px;
+    border: 1px solid #1e293b;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    max-height: 280px;
+    overflow: hidden;
+    position: relative;
+}
+
+.batch-dicom-gallery h4 {
+    margin: 0;
+    font-size: 1rem;
+    color: #f1f5f9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+}
+
+.gallery-toggle {
+    font-size: 0.85rem;
+    color: #38bdf8;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    text-decoration: underline;
+}
+
+.batch-dicom-gallery.expanded {
+    max-height: none;
+    overflow: visible;
+}
+
+.dicom-gallery-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
+.batch-dicom-gallery.expanded .dicom-gallery-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+}
+
+.gallery-scroll-shadow {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 40px;
+    background: linear-gradient(180deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.95) 100%);
+    pointer-events: none;
+}
+
+.batch-dicom-gallery.expanded .gallery-scroll-shadow {
+    display: none;
+}
+
+.dicom-gallery-item {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dicom-gallery-path {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    word-break: break-all;
+}
+
+.dicom-gallery-image {
+    background: #000;
+    border-radius: 4px;
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+}
+
+.dicom-gallery-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.dicom-gallery-placeholder {
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+.batch-original-texts {
+    margin-top: 25px;
+    padding: 15px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+}
+
+.batch-original-texts h4 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    color: #1e293b;
+}
+
+.original-record-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #f8fafc;
+}
+
+.original-record-title {
+    font-weight: 600;
+    color: #0f172a;
+    margin-bottom: 8px;
+}
+
+.original-record-card pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 10px;
+    max-height: 200px;
+    overflow: auto;
 }
 
 /* 跨模态关联、风险评估区域 */

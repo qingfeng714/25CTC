@@ -25,11 +25,10 @@
     </script>
     
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20251022">
-    <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.3/dist/dicomParser.min.js"></script>
     
-    <!-- Cornerstone 库 -->
-    <script src="https://cdn.jsdelivr.net/npm/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader@4.1.2/dist/cornerstoneWADOImageLoader.min.js"></script>
+    <!-- Cornerstone 库（本地引用，若需升级可替换 vendor 目录文件） -->
+    <script src="{{ url_for('static', filename='js/vendor/cornerstone.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/vendor/cornerstoneWADOImageLoader.min.js') }}"></script>
     
     <!-- 你的自定义脚本 -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
@@ -77,7 +76,7 @@
             .container { max-width: 1500px; }
         }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/dicom-parser@1.8.3/dist/dicomParser.min.js"></script>
+    <script src="{{ url_for('static', filename='js/vendor/dicomParser.min.js') }}"></script>
 </head>
 <body>
     <div class="container">
@@ -92,16 +91,17 @@
             <!-- 单文件上传模式 -->
             <div class="upload-mode">
                 <h3>单文件处理</h3>
-                <p style="color: #666; margin-bottom: 15px;">
+                <!-- <p style="color: #666; margin-bottom: 15px;">
                     单独上传CSV、TXT、DICOM三类文件进行检测
-                </p>
+                </p> -->
                 <form id="singleUploadForm" enctype="multipart/form-data">
-                    <div class="form-group">
-                        <label for="csvFile">CSV元数据文件:</label>
-                        <input type="file" id="csvFile" name="csv" accept=".csv" />
-                        <small>可选：上传包含元数据的CSV文件</small>
+                    <!-- <div class="form-group">
+                        <label>CSV元数据文件:</label>
+                        <div style="padding: 12px; background: #f1f5f9; border: 1px dashed #94a3b8; border-radius: 6px; color: #475569;">
+                            系统使用内置文件 <code>database/cxr-record-list.csv</code>，无需手动上传。
+                        </div>
                     </div>
-                    
+                     -->
                     <div class="form-group">
                         <label for="txtFile">TXT文本文件:</label>
                         <input type="file" id="txtFile" name="txt" accept=".txt" />
@@ -116,7 +116,7 @@
                     
                     <div style="padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; margin-top: 15px;">
                         <small style="color: #856404;">
-                            <strong>提示：</strong>至少需要上传一个文件（CSV、TXT或DICOM）。系统会从上传的文件中提取PHI信息并进行跨模态对齐。
+                            <strong>提示：</strong>请至少上传一个TXT或DICOM文件
                         </small>
                     </div>
                     
@@ -203,15 +203,22 @@
                         
                         <!-- DICOM图像显示 -->
                         <div id="dicomImageContainer" class="dicom-viewer-container">
-                            <canvas id="dicomCanvas" class="dicom-canvas"></canvas>
-                            <div id="roiOverlay" class="roi-overlay-container"></div>
+                            <div class="dicom-main-preview">
+                                <div id="dicomCanvas" class="dicom-canvas"></div>
+                                <div id="roiOverlay" class="roi-overlay-container"></div>
+                            </div>
+                            <div id="dicomPreviewStrip" class="dicom-preview-strip" style="display:none;"></div>
                         </div>
+
+                        <!-- 批量DICOM缩略图 -->
+                        <div class="batch-dicom-gallery" id="batchDicomGallery" style="display:none;"></div>
                         
                         <!-- ROI信息 -->
                         <div class="roi-info-section">
                             <h4>ROI 信息</h4>
                             <div id="roiDisplay" class="roi-info-content"></div>
                         </div>
+
                     </div>
                 </div>
             </div>
@@ -238,7 +245,7 @@
             </div>
 
             <div class="action-buttons">
-                <button id="protectBtn" class="btn btn-success">执行数据保护</button>
+                <button id="protectBtn" class="btn btn-success">执行保护</button>
                 <button id="downloadBtn" class="btn btn-info">下载检测结果</button>
                 <button onclick="location.reload()" class="btn btn-secondary">返回上传</button>
             </div>
@@ -368,19 +375,20 @@
         async function handleSingleUpload() {
             console.log('[DEBUG] 开始单文件上传处理');
             
-            const csvFile = document.getElementById('csvFile').files[0];
             const txtFile = document.getElementById('txtFile').files[0];
             const dicomFile = document.getElementById('dicomFile').files[0];
             
+            const FIXED_CSV_PATH = 'database/cxr-record-list.csv';
+
             console.log('[DEBUG] 文件选择:', {
-                csv: csvFile ? csvFile.name : '未选择',
+                csv: FIXED_CSV_PATH,
                 txt: txtFile ? txtFile.name : '未选择',
                 dicom: dicomFile ? dicomFile.name : '未选择'
             });
             
             // 至少需要一个文件
-            if (!csvFile && !txtFile && !dicomFile) {
-                alert('请至少上传一个文件（CSV、TXT或DICOM）');
+            if (!txtFile && !dicomFile) {
+                alert('请至少上传TXT或DICOM文件');
                 return;
             }
             
@@ -391,43 +399,15 @@
             updateProgress(0, '开始处理...');
             
             try {
-                let csvPath = null;
+                let csvPath = FIXED_CSV_PATH;
                 let txtPath = null;
                 let dicomPath = null;
+                currentCsvPath = csvPath;  // 固定CSV路径供保护功能使用
                 
-                // 步骤1: 上传CSV文件（如果提供）
-                if (csvFile) {
-                    console.log('[DEBUG] 开始上传CSV文件:', csvFile.name);
-                    updateProgress(10, '上传CSV文件...');
-                    const csvFormData = new FormData();
-                    csvFormData.append('csv', csvFile);
-                    
-                    try {
-                const csvResponse = await fetch('/api/upload_csv', {
-                method: 'POST',
-                            body: csvFormData
-                        });
-                        
-                        if (!csvResponse.ok) {
-                            const errorText = await csvResponse.text();
-                            console.error('[ERROR] CSV上传失败:', errorText);
-                            throw new Error('CSV上传失败: ' + errorText);
-                        }
-            
-                const csvResult = await csvResponse.json();
-                        csvPath = csvResult.csv_path;
-                        currentCsvPath = csvPath;  // 保存CSV路径供保护功能使用
-                        console.log('[SUCCESS] CSV上传成功:', csvResult);
-                    } catch (error) {
-                        console.error('[ERROR] CSV上传异常:', error);
-                        throw error;
-                    }
-                }
-                
-                // 步骤2: 上传TXT文件（如果提供）
+                // 步骤1: 上传TXT文件（如果提供）
                 if (txtFile) {
                     console.log('[DEBUG] 开始上传TXT文件:', txtFile.name);
-                    updateProgress(30, '上传TXT文件...');
+                    updateProgress(10, '上传TXT文件...');
                     
                     // 读取TXT文件内容用于前端显示
                     const reader = new FileReader();
@@ -465,10 +445,10 @@
                     }
                 }
                 
-                // 步骤3: 上传DICOM文件（如果提供）
+                // 步骤2: 上传DICOM文件（如果提供）
                 if (dicomFile) {
                     console.log('[DEBUG] 开始上传DICOM文件:', dicomFile.name);
-                    updateProgress(50, '上传DICOM文件...');
+                    updateProgress(40, '上传DICOM文件...');
                     const dicomFormData = new FormData();
                     dicomFormData.append('dicom', dicomFile);
                     
@@ -731,6 +711,7 @@
         // 显示批量新工作流结果
         function displayBatchNewWorkflowResults(results) {
             document.getElementById('results').style.display = 'block';
+            setDicomViewerVisible(false);
             
             const entitiesList = document.getElementById('entitiesList');
             
@@ -803,6 +784,18 @@
             `;
             
             entitiesList.innerHTML = html;
+
+            const seriesDetails = collectSeriesDetailsFromResults(results);
+            renderSeriesOriginalTexts(seriesDetails);
+            renderDicomGalleryFromSeries(seriesDetails);
+
+            // const firstDicomSeries = seriesDetails.find(series => series.dicom_files && series.dicom_files.length > 0);
+            // if (firstDicomSeries) {
+            //     currentDicomPath = normalizeDicomPath(firstDicomSeries.dicom_files[0]);
+            //     displayDicomImage(currentDicomPath);
+            // } else {
+            //     showDicomPlaceholder('未找到DICOM文件');
+            // }
             
             // 显示ROI区域信息（在影像区域标签页）
             const roiDisplay = document.getElementById('roiDisplay');
@@ -1372,7 +1365,7 @@
                 riskMetrics.innerHTML = `
                     <div style="display: flex; flex-direction: column; gap: 15px;">
                         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #2196F3;">
-                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">F1分数</div>
+                            <div style="font-size: 16px; font-weight: 600; color: #495057; margin-bottom: 8px;">F1_score</div>
                             <div style="font-size: 24px; font-weight: 700; color: #2196F3;">${avgF1Score.toFixed(1)}%</div>
                         </div>
                         <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
@@ -1636,6 +1629,7 @@
         function displayResults(result) {
             console.log('检测结果:', result); // 添加调试信息
             document.getElementById('results').style.display = 'block';
+            setDicomViewerVisible(true);
             
             // ========== 左栏：原文和高亮实体 ==========
             
@@ -1815,18 +1809,19 @@
             
             // 1. 显示DICOM图像（如果有DICOM文件）
             const dicomCanvas = document.getElementById('dicomCanvas');
-            if (dicomCanvas && currentDicomPath) {
-                // 这里可以添加DICOM图像加载逻辑
-                // 暂时显示占位符
-                const ctx = dicomCanvas.getContext('2d');
-                dicomCanvas.width = 400;
-                dicomCanvas.height = 400;
-                ctx.fillStyle = '#2c3e50';
-                ctx.fillRect(0, 0, dicomCanvas.width, dicomCanvas.height);
-                ctx.fillStyle = '#34495e';
-                ctx.font = '16px Arial';
-                ctx.fillText('DICOM影像预览', 20, 30);
-                ctx.fillText('(图像加载中...)', 20, 60);
+            if (dicomCanvas) {
+                if (!currentDicomPath) {
+                    currentDicomPath = result.dicom_path 
+                        || (result.image_regions && result.image_regions.filepath)
+                        || (result.roi_regions && result.roi_regions.dicom_path)
+                        || currentDicomPath;
+                }
+                
+                if (currentDicomPath) {
+                    displayDicomImage(currentDicomPath);
+                } else {
+                    showDicomPlaceholder('未提供DICOM文件');
+                }
             }
             
             // 2. 显示ROI信息
@@ -2134,6 +2129,7 @@
             
             // 1. 处理文本实体 - 汇总所有CSV数据中的敏感信息
             displayBatchTextEntities(data);
+            renderBatchDicomGallery(data.results);
             
             // 2. 处理跨模态关联 - 显示匹配详情
             displayBatchCrossmodalMatches(data);
@@ -2263,7 +2259,359 @@
                 }
             }
             
-            entitiesList.innerHTML = html;
+            const originalTextsHTML = buildBatchOriginalTextsHTML(data.results);
+            entitiesList.innerHTML = html + originalTextsHTML;
+            loadBatchOriginalTexts(data.results);
+        }
+
+        function buildBatchOriginalTextsHTML(results) {
+            if (!results || results.length === 0) {
+                return '';
+            }
+            let html = '<div class="batch-original-texts">';
+            html += `<h4>原文记录（${results.length} 条）</h4>`;
+            
+            results.forEach((item, index) => {
+                const title = escapeHtml(getRecordDisplayName(item, index));
+                html += `
+                    <div class="original-record-card">
+                        <div class="original-record-title">${title}</div>
+                        <pre id="originalRecord_${index}">正在加载原文...</pre>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            return html;
+        }
+
+        function normalizeBatchRecord(item, index = 0) {
+            const record = item || {};
+            const nested = record.result || {};
+            const csvData = record.csv_data || nested.csv_data || {};
+            
+            const patientId = record.patient_id ||
+                nested.patient_id ||
+                csvData.patient_id ||
+                csvData.PatientID ||
+                `record_${index + 1}`;
+            const name = record.patient_name ||
+                nested.patient_name ||
+                csvData.Name ||
+                csvData.PatientName;
+            const displayName = name
+                ? `${name} (${patientId})`
+                : `记录 ${index + 1} - ${patientId}`;
+            
+            let rawText = record.original_text ||
+                nested.original_text ||
+                record.txt_content ||
+                nested.txt_content ||
+                record.raw_text ||
+                nested.raw_text;
+            if (!rawText && csvData && Object.keys(csvData).length > 0) {
+                rawText = Object.entries(csvData)
+                    .map(([key, value]) => `${key}: ${value === undefined || value === null ? '' : value}`)
+                    .join('\n');
+            }
+            
+            return {
+                displayName,
+                rawText,
+                dicomPath: resolveDicomPath(record) || resolveDicomPath(nested),
+                textPath: resolveTextPath(record) || resolveTextPath(nested)
+            };
+        }
+
+        function resolveDicomPath(source) {
+            if (!source) return null;
+            if (source.dicom_path) return source.dicom_path;
+            if (source.dicom_file_path) return source.dicom_file_path;
+            if (source.dicom_file && source.dicom_file !== 'None') return source.dicom_file;
+            if (source.filepath) return source.filepath;
+            if (source.dicom_metadata) {
+                const meta = source.dicom_metadata;
+                return meta.filepath || meta.dicom_path || meta.path || meta.file || null;
+            }
+            if (Array.isArray(source.dicom_results) && source.dicom_results.length > 0) {
+                return source.dicom_results[0].dicom_path || resolveDicomPath(source.dicom_results[0]);
+            }
+            if (Array.isArray(source.dicom_files) && source.dicom_files.length > 0) {
+                return source.dicom_files[0];
+            }
+            if (source.dicom) return source.dicom;
+            return null;
+        }
+
+        function getRecordDisplayName(item, index = 0) {
+            return normalizeBatchRecord(item, index).displayName;
+        }
+
+        function getOriginalTextBlock(item, index = 0) {
+            return normalizeBatchRecord(item, index).rawText || '';
+        }
+
+        function resolveTextPath(source) {
+            if (!source) return null;
+            if (source.txt_file) return source.txt_file;
+            if (source.txt_path) return source.txt_path;
+            if (source.text_path) return source.text_path;
+            if (source.report_file_path) return source.report_file_path;
+            if (source.text_file) return source.text_file;
+            if (source.series_path && source.series_path.endsWith && source.series_path.endsWith('.txt')) {
+                return source.series_path;
+            }
+            const csv = source.csv_data;
+            if (csv && csv.report_file_path) {
+                if (csv.report_file_path.startsWith('uploads/')) return csv.report_file_path;
+                if (source.series_path) {
+                    const baseDir = source.series_path.replace(/\\[^\\]+$/, '').replace(/\/[^/]+$/, '');
+                    return `${baseDir}/${csv.report_file_path.split('/').pop()}`.replace(/\\/g, '/');
+                }
+                return csv.report_file_path;
+            }
+            return null;
+        }
+
+        function renderBatchDicomGallery(results) {
+            const gallery = document.getElementById('batchDicomGallery');
+            if (!gallery) return;
+            gallery.innerHTML = '';
+            
+            if (!results || results.length === 0) {
+                gallery.style.display = 'none';
+                return;
+            }
+            
+            const dicomItems = results
+                .map((item, index) => ({ record: item, index, path: getDicomFilePath(item, index) }))
+                .filter(item => item.path);
+            if (dicomItems.length === 0) {
+                gallery.style.display = 'none';
+                return;
+            }
+            
+            gallery.style.display = 'flex';
+            const title = document.createElement('h4');
+            title.textContent = `批量DICOM影像（${dicomItems.length} 个）`;
+            gallery.appendChild(title);
+            
+            dicomItems.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'dicom-gallery-item';
+                const dicomPath = item.path;
+                const displayName = getRecordDisplayName(item.record, item.index);
+                
+                card.innerHTML = `
+                    <div class="dicom-gallery-title">${escapeHtml(displayName)}</div>
+                    <div class="dicom-gallery-path">${escapeHtml(dicomPath)}</div>
+                    <div class="dicom-gallery-image">
+                        <div class="dicom-gallery-placeholder">图像加载中...</div>
+                    </div>
+                `;
+                
+                gallery.appendChild(card);
+                
+                const imageContainer = card.querySelector('.dicom-gallery-image');
+                renderDicomPreviewImage(dicomPath, imageContainer);
+            });
+        }
+
+        function getDicomFilePath(item, index = 0) {
+            return normalizeBatchRecord(item, index).dicomPath;
+        }
+
+        function loadBatchOriginalTexts(results) {
+            if (!Array.isArray(results)) return;
+            results.forEach((item, index) => {
+                const target = document.getElementById(`originalRecord_${index}`);
+                if (!target) return;
+                
+                const normalized = normalizeBatchRecord(item, index);
+                if (normalized.rawText) {
+                    target.textContent = normalized.rawText;
+                    return;
+                }
+                
+                const textPath = normalized.textPath;
+                if (!textPath) {
+                    target.textContent = '（无原文数据）';
+                    return;
+                }
+                
+                target.textContent = '正在加载原文...';
+                const normalizedPath = normalizeDicomPath(textPath);
+                fetch(`/api/text_content?path=${encodeURIComponent(normalizedPath)}`)
+                    .then(async response => {
+                        const data = await response.json();
+                        if (response.ok && data.text !== undefined) {
+                            target.textContent = data.text;
+                        } else {
+                            target.textContent = `加载失败：${data.error || response.statusText}`;
+                        }
+                    })
+                    .catch(err => {
+                        target.textContent = `加载失败：${err.message}`;
+                    });
+            });
+        }
+
+        function renderDicomPreviewImage(dicomPath, container) {
+            if (!container) return;
+            const normalizedPath = normalizeDicomPath(dicomPath);
+            if (!normalizedPath) {
+                container.innerHTML = '<div class="dicom-gallery-placeholder">路径无效</div>';
+                return;
+            }
+            
+            const img = new Image();
+            img.alt = 'DICOM预览图';
+            img.src = `/api/dicom_render?path=${encodeURIComponent(normalizedPath)}&ts=${Date.now()}`;
+            img.onload = () => {
+                container.innerHTML = '';
+                container.appendChild(img);
+            };
+            img.onerror = () => {
+                container.innerHTML = '<div class="dicom-gallery-placeholder">加载失败</div>';
+            };
+        }
+
+        function normalizeServerPath(path) {
+            if (!path) return null;
+            return path.replace(/\\\\/g, '/').replace(/\\/g, '/');
+        }
+
+        function collectSeriesDetailsFromResults(results) {
+            const seriesList = [];
+            (results || []).forEach(batchResult => {
+                if (!batchResult) return;
+                const detailList = batchResult.detailed_results ||
+                    (batchResult.result && batchResult.result.detailed_results) ||
+                    [];
+                detailList.forEach(series => {
+                    const dicomFiles = [];
+                    if (Array.isArray(series.dicom_files)) {
+                        series.dicom_files.forEach(path => {
+                            if (path) dicomFiles.push(normalizeServerPath(path));
+                        });
+                    }
+                    if (Array.isArray(series.dicom_results)) {
+                        series.dicom_results.forEach(dcm => {
+                            const dcmPath = dcm && (dcm.dicom_path || dcm.filepath);
+                            if (dcmPath) dicomFiles.push(normalizeServerPath(dcmPath));
+                        });
+                    }
+
+                    seriesList.push({
+                        name: series.series_name || series.patient_id || series.study_id || `记录 ${seriesList.length + 1}`,
+                        patient_id: series.patient_id || (series.dicom_results && series.dicom_results[0] && series.dicom_results[0].patient_id),
+                        txt_file: normalizeServerPath(series.txt_file || series.report_file_path || series.txt_path),
+                        raw_text: series.txt_content || series.raw_text || '',
+                        dicom_files: dicomFiles
+                    });
+                });
+            });
+            return seriesList;
+        }
+
+        function renderSeriesOriginalTexts(seriesList) {
+            const originalTextDisplay = document.getElementById('originalTextDisplay');
+            if (!originalTextDisplay) return;
+            if (!seriesList || seriesList.length === 0) {
+                originalTextDisplay.innerHTML = '<p style="text-align:center; color:#6c757d;">批量处理未提供可显示的原文</p>';
+                return;
+            }
+
+            let html = '';
+            seriesList.forEach((series, idx) => {
+                const title = escapeHtml(series.name || `记录 ${idx + 1}`);
+                const preContent = series.raw_text ? escapeHtml(series.raw_text) : '正在加载原文...';
+                html += `
+                    <div class="original-record-card">
+                        <div class="original-record-title">${title}</div>
+                        <pre id="seriesTextBlock_${idx}">${preContent}</pre>
+                    </div>
+                `;
+            });
+
+            originalTextDisplay.innerHTML = html;
+
+            seriesList.forEach((series, idx) => {
+                if (series.raw_text) return;
+                const target = document.getElementById(`seriesTextBlock_${idx}`);
+                if (!target) return;
+                if (!series.txt_file) {
+                    target.textContent = '（未提供原文文件路径）';
+                    return;
+                }
+                fetch(`/api/text_content?path=${encodeURIComponent(series.txt_file)}`)
+                    .then(async response => {
+                        const data = await response.json();
+                        if (response.ok && typeof data.text === 'string') {
+                            target.textContent = data.text;
+                        } else {
+                            target.textContent = `加载失败：${data.error || response.statusText}`;
+                        }
+                    })
+                    .catch(err => {
+                        target.textContent = `加载失败：${err.message}`;
+                    });
+            });
+        }
+
+        function renderDicomGalleryFromSeries(seriesList) {
+            const gallery = document.getElementById('batchDicomGallery');
+            if (!gallery) return;
+            const dicomItemsMap = new Map();
+            (seriesList || []).forEach(series => {
+                (series.dicom_files || []).forEach((filePath, fileIdx) => {
+                    if (!filePath) return;
+                    const normalized = normalizeServerPath(filePath);
+                    if (!normalized || dicomItemsMap.has(normalized)) return;
+                    dicomItemsMap.set(normalized, {
+                        title: `${series.name || 'Series'} - 图像 ${fileIdx + 1}`,
+                        path: normalized
+                    });
+                });
+            });
+            const dicomItems = Array.from(dicomItemsMap.values());
+
+            if (dicomItems.length === 0) {
+                gallery.style.display = 'none';
+                return;
+            }
+
+            gallery.style.display = 'flex';
+            gallery.innerHTML = `
+                <h4>
+                    批量DICOM影像（${dicomItems.length} 个）
+                    <button class="gallery-toggle" id="galleryToggleBtn">展开</button>
+                </h4>
+                <div class="dicom-gallery-list" id="dicomGalleryList"></div>
+                <div class="gallery-scroll-shadow"></div>
+            `;
+
+            const listContainer = document.getElementById('dicomGalleryList');
+
+            dicomItems.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'dicom-gallery-item';
+                card.innerHTML = `
+                    <div class="dicom-gallery-path">${escapeHtml(item.title)} · ${escapeHtml(item.path)}</div>
+                    <div class="dicom-gallery-image"></div>
+                `;
+                listContainer.appendChild(card);
+                const imgContainer = card.querySelector('.dicom-gallery-image');
+                renderDicomPreviewImage(item.path, imgContainer);
+            });
+
+            const toggleBtn = document.getElementById('galleryToggleBtn');
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', () => {
+                    const isExpanded = gallery.classList.toggle('expanded');
+                    toggleBtn.textContent = isExpanded ? '收起' : '展开';
+                });
+            }
         }
         
         // 显示批量跨模态匹配
@@ -2403,6 +2751,12 @@
             
             const entitiesList = document.getElementById('entitiesList');
             
+            if (!Array.isArray(results) || results.length === 0) {
+                entitiesList.innerHTML = '<p style="color: red;">批量结果为空</p>';
+                renderBatchDicomGallery([]);
+                return;
+            }
+            
             // 统计信息
             let totalEntities = 0;
             let totalMappings = 0;
@@ -2470,7 +2824,10 @@
                 </div>
             `;
             
-            entitiesList.innerHTML = summaryHTML;
+            const originalTextsHTML = buildBatchOriginalTextsHTML(results);
+            entitiesList.innerHTML = summaryHTML + originalTextsHTML;
+            loadBatchOriginalTexts(results);
+            renderBatchDicomGallery(results);
         }
 
         // 全局变量：保存当前检测结果和批次ID
@@ -2480,6 +2837,139 @@
         let currentCsvPath = null;    // 保存CSV文件路径
         let currentTxtPath = null;    // 保存TXT文件路径
         let currentTxtContent = null; // 保存TXT文件内容
+        let dicomViewerEnabled = false;
+        let currentDicomImageId = null;
+        let dicomViewerForcedHidden = false;
+
+        function normalizeDicomPath(path) {
+            if (!path) return null;
+            return path.replace(/\\/g, '/');
+        }
+
+        function getDicomViewUrl(path) {
+            const normalizedPath = normalizeDicomPath(path);
+            if (!normalizedPath) return null;
+            return `/api/dicom_view?path=${encodeURIComponent(normalizedPath)}`;
+        }
+
+        function showDicomPlaceholder(message = 'DICOM影像预览') {
+            const dicomElement = document.getElementById('dicomCanvas');
+            if (!dicomElement) return;
+            if (dicomViewerForcedHidden) return;
+            if (dicomViewerEnabled && typeof cornerstone !== 'undefined') {
+                try {
+                    cornerstone.disable(dicomElement);
+                } catch (err) {
+                    console.warn('[DICOM] disable viewer failed', err);
+                }
+                dicomViewerEnabled = false;
+            }
+            dicomElement.classList.remove('dicom-loading');
+            dicomElement.innerHTML = `
+                <div class="dicom-placeholder">
+                    <div style="font-size:18px; margin-bottom:6px;">${message}</div>
+                    <div style="font-size:13px; color:#9baec8;">请上传或重新检测DICOM文件</div>
+                </div>
+            `;
+        }
+
+        async function displayDicomImage(dicomPath) {
+            const dicomElement = document.getElementById('dicomCanvas');
+            if (!dicomElement) return;
+            if (dicomViewerForcedHidden) return;
+            if (!dicomPath) {
+                showDicomPlaceholder('未提供DICOM文件');
+                return;
+            }
+
+            if (typeof cornerstone === 'undefined' || typeof cornerstoneWADOImageLoader === 'undefined') {
+                console.warn('[DICOM] Cornerstone库未加载，使用PNG回退渲染');
+                renderDicomFallbackImage(dicomPath);
+                return;
+            }
+
+            if (!dicomViewerEnabled) {
+                try {
+                    cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+                    if (typeof dicomParser !== 'undefined') {
+                        cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
+                    }
+                    cornerstone.enable(dicomElement);
+                    dicomViewerEnabled = true;
+                } catch (err) {
+                    console.warn('[DICOM] 初始化viewer失败', err);
+                    showDicomPlaceholder('DICOM查看器初始化失败');
+                    return;
+                }
+            }
+
+            const dicomUrl = getDicomViewUrl(dicomPath);
+            if (!dicomUrl) {
+                showDicomPlaceholder('DICOM路径无效');
+                return;
+            }
+
+            dicomElement.innerHTML = '';
+            dicomElement.classList.add('dicom-loading');
+            currentDicomImageId = `wadouri:${dicomUrl}`;
+
+            try {
+                const image = await cornerstone.loadAndCacheImage(currentDicomImageId);
+                const viewport = cornerstone.getDefaultViewportForImage(dicomElement, image);
+                cornerstone.displayImage(dicomElement, image, viewport);
+            } catch (error) {
+                console.error('[DICOM] 加载失败:', error);
+                showError('DICOM图像加载失败: ' + (error.message || error));
+                showDicomPlaceholder('DICOM图像加载失败');
+            } finally {
+                dicomElement.classList.remove('dicom-loading');
+            }
+        }
+
+        function renderDicomFallbackImage(dicomPath) {
+            const dicomElement = document.getElementById('dicomCanvas');
+            if (!dicomElement) return;
+
+            const normalizedPath = normalizeDicomPath(dicomPath);
+            if (!normalizedPath) {
+                showDicomPlaceholder('DICOM路径无效');
+                return;
+            }
+
+            const fallbackUrl = `/api/dicom_render?path=${encodeURIComponent(normalizedPath)}&ts=${Date.now()}`;
+            dicomElement.innerHTML = '';
+            dicomElement.classList.add('dicom-loading');
+
+            const img = new Image();
+            img.alt = 'DICOM预览';
+            img.style.maxWidth = '100%';
+            img.style.maxHeight = '100%';
+            img.style.objectFit = 'contain';
+
+            img.onload = () => {
+                dicomElement.classList.remove('dicom-loading');
+            };
+
+            img.onerror = (err) => {
+                console.error('[DICOM] PNG回退渲染失败:', err);
+                dicomElement.classList.remove('dicom-loading');
+                showDicomPlaceholder('DICOM图像加载失败');
+            };
+
+            dicomElement.appendChild(img);
+            img.src = fallbackUrl;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            showDicomPlaceholder('等待DICOM文件');
+        });
+
+        function setDicomViewerVisible(show) {
+            const container = document.getElementById('dicomImageContainer');
+            if (!container) return;
+            dicomViewerForcedHidden = !show;
+            container.style.display = show ? 'block' : 'none';
+        }
         
         // 辅助函数：从检测结果中提取patient_id
         function extractPatientId(result) {

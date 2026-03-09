@@ -3,6 +3,7 @@ import uuid
 import argparse
 import re
 import secrets
+import io
 from pathlib import Path
 from flask import Flask, request, jsonify, render_template, send_file
 import torch
@@ -1112,6 +1113,176 @@ def create_app(config=None):
             import traceback
             traceback.print_exc()
             return jsonify({"error": error_msg, "status": "error"}), 500
+
+    @app.route("/api/dicom_view", methods=["GET"])
+    def dicom_view():
+        """允许前端安全读取上传的DICOM文件"""
+        try:
+            raw_path = request.args.get('path')
+            if not raw_path:
+                return jsonify({"error": "Missing path parameter"}), 400
+
+            sanitized_path = raw_path.replace('\\', '/')
+            target_path = Path(sanitized_path)
+            if not target_path.is_absolute():
+                target_path = (Path(app.root_path) / target_path).resolve()
+            else:
+                target_path = target_path.resolve()
+
+            uploads_dir = Path(app.config.get('UPLOAD_FOLDER', './uploads')).resolve()
+            output_dir = Path(app.config.get('OUTPUT_DIR', './output')).resolve()
+            allowed_roots = [uploads_dir, output_dir]
+
+            if not any(str(target_path).startswith(str(root)) for root in allowed_roots):
+                return jsonify({"error": "Forbidden path"}), 403
+
+            if not target_path.exists() or not target_path.is_file():
+                return jsonify({"error": "File not found"}), 404
+
+            return send_file(
+                str(target_path),
+                mimetype='application/dicom',
+                as_attachment=False,
+                download_name=target_path.name
+            )
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[ERROR] DICOM查看失败: {error_msg}")
+            return jsonify({"error": error_msg}), 500
+
+    @app.route("/api/dicom_render", methods=["GET"])
+    def dicom_render():
+        """将DICOM像素转换为PNG（供无Cornerstone环境预览）"""
+        try:
+            raw_path = request.args.get('path')
+            if not raw_path:
+                return jsonify({"error": "Missing path parameter"}), 400
+
+            sanitized_path = raw_path.replace('\\', '/')
+            target_path = Path(sanitized_path)
+            if not target_path.is_absolute():
+                target_path = (Path(app.root_path) / target_path).resolve()
+            else:
+                target_path = target_path.resolve()
+
+            uploads_dir = Path(app.config.get('UPLOAD_FOLDER', './uploads')).resolve()
+            output_dir = Path(app.config.get('OUTPUT_DIR', './output')).resolve()
+            allowed_roots = [uploads_dir, output_dir]
+
+            if not any(str(target_path).startswith(str(root)) for root in allowed_roots):
+                return jsonify({"error": "Forbidden path"}), 403
+
+            if not target_path.exists() or not target_path.is_file():
+                return jsonify({"error": "File not found"}), 404
+
+            import numpy as np
+            import pydicom
+            from PIL import Image
+
+            ds = pydicom.dcmread(str(target_path), force=True)
+            pixel_array = ds.pixel_array
+
+            # 处理多帧/多通道情况
+            if pixel_array.ndim == 4:
+                pixel_array = pixel_array[0]
+            if pixel_array.ndim == 3 and pixel_array.shape[-1] not in (3, 4):
+                pixel_array = pixel_array[0]
+
+            pixel_array = pixel_array.astype(np.float32)
+            slope = float(getattr(ds, 'RescaleSlope', 1.0) or 1.0)
+            intercept = float(getattr(ds, 'RescaleIntercept', 0.0) or 0.0)
+            pixel_array = pixel_array * slope + intercept
+
+            def extract_window_value(value, default):
+                if value is None:
+                    return default
+                if isinstance(value, (list, tuple)):
+                    return float(value[0])
+                return float(value)
+
+            window_center = request.args.get('wc')
+            window_width = request.args.get('ww')
+
+            if window_center is None:
+                window_center = extract_window_value(getattr(ds, 'WindowCenter', None), float(pixel_array.mean()))
+            else:
+                window_center = float(window_center)
+
+            if window_width is None:
+                width_default = float(np.ptp(pixel_array)) or 1.0
+                window_width = extract_window_value(getattr(ds, 'WindowWidth', None), width_default)
+            else:
+                window_width = float(window_width)
+
+            window_width = max(window_width, 1.0)
+            min_value = window_center - window_width / 2.0
+            max_value = window_center + window_width / 2.0
+
+            normalized = np.clip((pixel_array - min_value) / (max_value - min_value), 0.0, 1.0)
+            image_array = (normalized * 255).astype(np.uint8)
+
+            if image_array.ndim == 2:
+                pil_image = Image.fromarray(image_array).convert('L')
+            elif image_array.ndim == 3 and image_array.shape[-1] in (3, 4):
+                mode = 'RGB' if image_array.shape[-1] == 3 else 'RGBA'
+                pil_image = Image.fromarray(image_array, mode)
+            else:
+                pil_image = Image.fromarray(image_array).convert('L')
+
+            buffer = io.BytesIO()
+            pil_image.save(buffer, format='PNG')
+            buffer.seek(0)
+
+            return send_file(buffer, mimetype='image/png')
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[ERROR] DICOM渲染失败: {error_msg}")
+            return jsonify({"error": error_msg}), 500
+
+    @app.route("/api/text_content", methods=["GET"])
+    def text_content():
+        """安全读取文本文件内容"""
+        try:
+            raw_path = request.args.get('path')
+            if not raw_path:
+                return jsonify({"error": "Missing path parameter"}), 400
+
+            sanitized_path = raw_path.replace('\\', '/')
+            target_path = Path(sanitized_path)
+            if not target_path.is_absolute():
+                target_path = (Path(app.root_path) / target_path).resolve()
+            else:
+                target_path = target_path.resolve()
+
+            uploads_dir = Path(app.config.get('UPLOAD_FOLDER', './uploads')).resolve()
+            output_dir = Path(app.config.get('OUTPUT_DIR', './output')).resolve()
+            allowed_roots = [uploads_dir, output_dir]
+
+            if not any(str(target_path).startswith(str(root)) for root in allowed_roots):
+                return jsonify({"error": "Forbidden path"}), 403
+
+            if not target_path.exists() or not target_path.is_file():
+                return jsonify({"error": "File not found"}), 404
+
+            text_content = None
+            for encoding in ('utf-8', 'utf-8-sig', 'gbk', 'latin1'):
+                try:
+                    text_content = target_path.read_text(encoding=encoding)
+                    break
+                except Exception:
+                    continue
+
+            if text_content is None:
+                return jsonify({"error": "Unable to read file"}), 500
+
+            return jsonify({
+                "path": str(target_path),
+                "text": text_content
+            })
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[ERROR] 文本读取失败: {error_msg}")
+            return jsonify({"error": error_msg}), 500
 
     @app.route("/")
     def index():
